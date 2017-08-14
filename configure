@@ -3533,6 +3533,7 @@ tmpfile TMPO   .o
 tmpfile TMPS   .S
 tmpfile TMPSH  .sh
 tmpfile TMPV   .ver
+
 #输出/tmp
 #echo $TMPDIR
 #exit
