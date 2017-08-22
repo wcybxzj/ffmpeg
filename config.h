@@ -2281,3 +2281,4 @@
 #define CONFIG_LIBSMBCLIENT_PROTOCOL 0
 #define CONFIG_ECHO 0
 #define CONFIG_ 0
+#endif
