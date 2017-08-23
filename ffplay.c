@@ -904,7 +904,13 @@ static int upload_texture(SDL_Texture *tex, AVFrame *frame, struct SwsContext **
     }
     return ret;
 }
-
+/*
+video_image_display()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+calculate_display_rect()£º
+¼ÆËãÏÔÊ¾»­ÃæµÄÎ»ÖÃ¡£
+µ±À­ÉìÁËSDLµÄ´°¿ÚµÄÊ±ºò£¬¿ÉÒÔÈÃÆäÖĞµÄÊÓÆµ±£³Ö×İºá±È¡£
+SDL_DisplayYUVOverlay()£ºÏÔÊ¾»­ÃæÖÁÆÁÄ»¡£
+*/
 static void video_image_display(VideoState *is)
 {
     Frame *vp;
@@ -993,6 +999,12 @@ static inline int compute_mod(int a, int b)
 {
     return a < 0 ? a%b + b : a%b;
 }
+/*
+video_audio_display()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+SDL_MapRGB()£º»ñµÃÖ¸¶¨£¨R£¬G£¬B£©ÒÔ¼°SDL_PixelFormatµÄÑÕÉ«ÊıÖµ¡£ÀıÈç»ñµÃºÚÉ«µÄÖµ£¬×÷Îª±³¾°¡££¨R£¬G£¬B£©Îª£¨0x00£¬0x00£¬0x00£©¡£
+fill_rectangle()£º½«Ö¸¶¨ÑÕÉ«ÏÔÊ¾µ½ÆÁÄ»ÉÏ¡£
+SDL_UpdateRect()£º¸üĞÂÆÁÄ»¡£
+*/
 
 static void video_audio_display(VideoState *s)
 {
@@ -1192,7 +1204,12 @@ static void stream_component_close(VideoState *is, int stream_index)
         break;
     }
 }
-
+/*
+stream_close()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+packet_queue_destroy()£ºÊÍ·ÅPacketQueue¡£
+SDL_FreeYUVOverlay()£ºÊÍ·ÅSDL_Overlay¡£
+sws_freeContext()£ºÊÍ·ÅSwsContext¡£
+*/
 static void stream_close(VideoState *is)
 {
     /* XXX: use a special url_shutdown call to abort parse cleanly */
@@ -1230,6 +1247,11 @@ static void stream_close(VideoState *is)
     av_free(is);
 }
 
+/*
+do_exit()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+stream_close()£º¹Ø±Õ´ò¿ªµÄÃ½Ìå¡£
+SDL_Quit()£º¹Ø±ÕSDL¡£
+*/
 static void do_exit(VideoState *is)
 {
     if (is) {
@@ -1265,6 +1287,11 @@ static void set_default_window_size(int width, int height, AVRational sar)
     default_height = rect.h;
 }
 
+/*
+video_open()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+SDL_SetVideoMode()£ºÉèÖÃSDL_Surface£¨¼´SDL×î»ù´¡µÄºÚÉ«µÄ¿ò£©µÄ´óĞ¡µÈĞÅÏ¢¡£
+SDL_WM_SetCaption()£ºÉèÖÃSDL_Surface¶ÔÓ¦´°¿ÚµÄ±êÌâÎÄ×Ö¡£
+*/
 static int video_open(VideoState *is)
 {
     int w,h;
@@ -1315,7 +1342,12 @@ static int video_open(VideoState *is)
 
     return 0;
 }
-
+/*
+video_display()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+video_open()£º³õÊ¼»¯µÄÊ±ºòµ÷ÓÃ£¬´ò¿ª²¥·Å´°¿Ú¡£
+video_audio_display()£ºÏÔÊ¾ÒôÆµ²¨ĞÎÍ¼£¨»òÕßÆµÆ×Í¼£©µÄÊ±ºòµ÷ÓÃ¡£ÀïÃæ°üº¬ÁË²»ÉÙ»­Í¼²Ù×÷¡£
+video_image_display()£ºÏÔÊ¾ÊÓÆµ»­ÃæµÄÊ±ºòµ÷ÓÃ¡£
+*/
 /* display the current picture, if any */
 static void video_display(VideoState *is)
 {
@@ -1529,7 +1561,16 @@ static void update_video_pts(VideoState *is, double pts, int64_t pos, int serial
     set_clock(&is->vidclk, pts, serial);
     sync_clock_to_slave(&is->extclk, &is->vidclk);
 }
+/*
+ÏÂÃæÖØµã·ÖÎövideo_refresh()º¯Êı¡£¸Ãº¯ÊıÓÃÓÚ½«Í¼ÏñÏÔÊ¾µ½ÏÔÊ¾Æ÷ÉÏ
+video_refresh()º¯Êıµ÷ÓÃÁËÒÔÏÂº¯Êı
+video_display()£ºÏÔÊ¾ÏñËØÊı¾İµ½ÆÁÄ»ÉÏ¡£
+show_status£ºÕâËã²»ÉÏÊÇÒ»¸öº¯Êı£¬µ«ÊÇÊÇÒ»¸ö¶ÀÁ¢µÄ¹¦ÄÜÄ£¿é£¬Òò´ËÁĞÁË³öÀ´¡£¸Ã²¿·Ö´òÓ¡Êä³ö²¥·ÅµÄ×´Ì¬ÖÁÆÁÄ»ÉÏ¡£ÈçÏÂÍ¼ËùÊ¾¡£
 
+2.34 A-V:  0.016 fd=  23 aq=   12KB vq=   48KB sq=	  0B f=0/0
+
+
+*/
 /* called to display each frame */
 static void video_refresh(void *opaque, double *remaining_time)
 {
@@ -1688,7 +1729,16 @@ display:
         }
     }
 }
-
+/*
+queue_picture()µ÷ÓÃÁËÈçÏÂº¯Êı
+SDL_LockYUVOverlay()£ºËø¶¨Ò»¸öSDL_Overlay¡£
+sws_getCachedContext()£º
+³õÊ¼»¯libswscaleÖĞµÄSwsContext¡£
+LibswscaleÓÃÓÚÍ¼ÏñµÄRaw¸ñÊ½Êı¾İ£¨YUV£¬RGB£©Ö®¼äµÄ×ª»»¡£
+×¢Òâsws_getCachedContext()ºÍsws_getContext()¹¦ÄÜÊÇÒ»ÖÂµÄ¡£
+sws_scale()£º×ª»»Í¼ÏñÊı¾İµ½ÊÊºÏÏµÍ³²¥·ÅµÄ¸ñÊ½¡£
+SDL_UnlockYUVOverlay()£º½âËøÒ»¸öSDL_Overlay¡£
+*/
 static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double duration, int64_t pos, int serial)
 {
     Frame *vp;
@@ -1719,7 +1769,11 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
     frame_queue_push(&is->pictq);
     return 0;
 }
-
+/*
+get_video_frame()µ÷ÓÃÁËÈçÏÂº¯Êı
+packet_queue_get()£º»ñÈ¡ÊÓÆµÑ¹Ëõ±àÂëÊı¾İ£¨Ò»¸öAVPacket£©¡£
+avcodec_decode_video2()£º½âÂëÊÓÆµÑ¹Ëõ±àÂëÊı¾İ£¨µÃµ½Ò»¸öAVFrame£©¡£
+*/
 static int get_video_frame(VideoState *is, AVFrame *frame)
 {
     int got_picture;
@@ -2064,7 +2118,12 @@ static int decoder_start(Decoder *d, int (*fn)(void *), void *arg)
     }
     return 0;
 }
-
+/*
+video_thread()µ÷ÓÃÁËÈçÏÂº¯Êı
+avcodec_alloc_frame()£º³õÊ¼»¯Ò»¸öAVFrame¡£
+get_video_frame()£º»ñÈ¡Ò»¸ö´æ´¢½âÂëºóÊı¾İµÄAVFrame¡£
+queue_picture()£º
+*/
 static int video_thread(void *arg)
 {
     VideoState *is = arg;
@@ -2174,6 +2233,11 @@ static int video_thread(void *arg)
     return 0;
 }
 
+/*
+subtitle_thread()µ÷ÓÃÁËÈçÏÂº¯Êı
+packet_queue_get()£º»ñÈ¡×ÖÄ»Ñ¹Ëõ±àÂëÊı¾İ£¨Ò»¸öAVPacket£©¡£
+avcodec_decode_subtitle2()£º½âÂë×ÖÄ»Ñ¹Ëõ±àÂëÊı¾İ¡£
+*/
 static int subtitle_thread(void *arg)
 {
     VideoState *is = arg;
@@ -2270,6 +2334,14 @@ static int synchronize_audio(VideoState *is, int nb_samples)
     return wanted_nb_samples;
 }
 
+/*
+audio_decode_frame()µ÷ÓÃÁËÈçÏÂº¯Êı
+packet_queue_get()£º»ñÈ¡ÒôÆµÑ¹Ëõ±àÂëÊı¾İ£¨Ò»¸öAVPacket£©¡£
+avcodec_decode_audio4()£º½âÂëÒôÆµÑ¹Ëõ±àÂëÊı¾İ£¨µÃµ½Ò»¸öAVFrame£©¡£
+swr_init()£º³õÊ¼»¯libswresampleÖĞµÄSwrContext¡£libswresampleÓÃÓÚÒôÆµ²ÉÑù²ÉÑùÊı¾İ£¨PCM£©µÄ×ª»»¡£
+swr_convert()£º×ª»»ÒôÆµ²ÉÑùÂÊµ½ÊÊºÏÏµÍ³²¥·ÅµÄ¸ñÊ½¡£
+swr_free()£ºÊÍ·ÅSwrContext¡£
+*/
 /**
  * Decode one audio frame and return its uncompressed size.
  *
@@ -2389,6 +2461,11 @@ static int audio_decode_frame(VideoState *is)
     return resampled_data_size;
 }
 
+/*
+sdl_audio_callback()µ÷ÓÃÁËÈçÏÂº¯Êı
+audio_decode_frame()£º½âÂëÒôÆµÊı¾İ¡£
+update_sample_display()£ºµ±²»ÏÔÊ¾ÊÓÆµÍ¼Ïñ£¬¶øÊÇÏÔÊ¾ÒôÆµ²¨ĞÎµÄÊ±ºò£¬µ÷ÓÃ´Ëº¯Êı¡£
+*/
 /* prepare a new audio buffer */
 static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
 {
@@ -2432,7 +2509,10 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
         sync_clock_to_slave(&is->extclk, &is->audclk);
     }
 }
-
+/*
+audio_open()µ÷ÓÃÁËÈçÏÂº¯Êı
+SDL_OpenAudio()£ºSDLÖĞ´ò¿ªÒôÆµÉè±¸µÄº¯Êı¡£×¢ÒâËüÊÇ¸ù¾İSDL_AudioSpec²ÎÊı´ò¿ªÒôÆµÉè±¸¡£SDL_AudioSpecÖĞµÄcallback×Ö¶ÎÖ¸¶¨ÁËÒôÆµ²¥·ÅµÄ»Øµ÷º¯Êısdl_audio_callback()¡£µ±ÒôÆµÉè±¸ĞèÒª¸ü¶àÊı¾İµÄÊ±ºò£¬»áµ÷ÓÃ¸Ã»Øµ÷º¯Êı¡£Òò´Ë¸Ãº¯ÊıÊÇ»á±»·´¸´µ÷ÓÃµÄ¡£
+*/
 static int audio_open(void *opaque, int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, struct AudioParams *audio_hw_params)
 {
     SDL_AudioSpec wanted_spec, spec;
@@ -2507,6 +2587,17 @@ static int audio_open(void *opaque, int64_t wanted_channel_layout, int wanted_nb
 }
 
 /* open a given stream. Return 0 if OK */
+//stream_component_open()ÓÃÓÚ´ò¿ªÊÓÆµ/ÒôÆµ/×ÖÄ»½âÂëµÄÏß³Ì¡£
+/*
+stream_component_open()µ÷ÓÃÁËÈçÏÂº¯Êı£º
+avcodec_find_decoder()£º»ñµÃ½âÂëÆ÷¡£
+avcodec_open2()£º´ò¿ª½âÂëÆ÷¡£
+audio_open()£º´ò¿ªÒôÆµ½âÂë¡£
+SDL_PauseAudio(0)£ºSDLÖĞ²¥·ÅÒôÆµµÄº¯Êı¡£
+video_thread()£º´´½¨ÊÓÆµ½âÂëÏß³Ì¡£
+subtitle_thread()£º´´½¨×ÖÄ»½âÂëÏß³Ì¡£
+packet_queue_start()£º³õÊ¼»¯PacketQueue¡£
+*/
 static int stream_component_open(VideoState *is, int stream_index)
 {
     AVFormatContext *ic = is->ic;
@@ -2532,6 +2623,7 @@ static int stream_component_open(VideoState *is, int stream_index)
         goto fail;
     av_codec_set_pkt_timebase(avctx, ic->streams[stream_index]->time_base);
 
+	//»ñµÃ½âÂëÆ÷¡£
     codec = avcodec_find_decoder(avctx->codec_id);
 
     switch(avctx->codec_type){
@@ -2696,6 +2788,17 @@ static int is_realtime(AVFormatContext *s)
 }
 
 /* this thread gets the stream from the disk or the network */
+/*
+read_thread()
+read_thread()µ÷ÓÃÁËÈçÏÂº¯Êı£º
+avformat_open_input()£º´ò¿ªÃ½Ìå¡£
+avformat_find_stream_info()£º»ñµÃÃ½ÌåĞÅÏ¢¡£
+av_dump_format()£ºÊä³öÃ½ÌåĞÅÏ¢µ½¿ØÖÆÌ¨¡£
+stream_component_open()£º·Ö±ğ´ò¿ªÊÓÆµ/ÒôÆµ/×ÖÄ»½âÂëÏß³Ì¡£
+refresh_thread()£ºÊÓÆµË¢ĞÂÏß³Ì¡£
+av_read_frame()£º»ñÈ¡Ò»Ö¡Ñ¹Ëõ±àÂëÊı¾İ£¨¼´Ò»¸öAVPacket£©¡£
+packet_queue_put()£º¸ù¾İÑ¹Ëõ±àÂëÊı¾İÀàĞÍµÄ²»Í¬£¨ÊÓÆµ/ÒôÆµ/×ÖÄ»£©£¬·Åµ½²»Í¬µÄPacketQueueÖĞ¡£
+*/
 static int read_thread(void *arg)
 {
     VideoState *is = arg;
@@ -2736,6 +2839,7 @@ static int read_thread(void *arg)
         av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
         scan_all_pmts_set = 1;
     }
+	//´ò¿ªÃ½Ìå
     err = avformat_open_input(&ic, is->filename, is->iformat, &format_opts);
     if (err < 0) {
         print_error(is->filename, err);
@@ -2759,7 +2863,7 @@ static int read_thread(void *arg)
 
     opts = setup_find_stream_info_opts(ic, codec_opts);
     orig_nb_streams = ic->nb_streams;
-
+	//»ñµÃÃ½ÌåĞÅÏ¢¡£
     err = avformat_find_stream_info(ic, opts);
 
     for (i = 0; i < orig_nb_streams; i++)
@@ -2849,12 +2953,13 @@ static int read_thread(void *arg)
 
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
+		//·Ö±ğ´ò¿ªÊÓÆµ/ÒôÆµ/×ÖÄ»½âÂëÏß³Ì¡
         stream_component_open(is, st_index[AVMEDIA_TYPE_AUDIO]);
     }
 
     ret = -1;
     if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
-        ret = stream_component_open(is, st_index[AVMEDIA_TYPE_VIDEO]);
+		ret = stream_component_open(is, st_index[AVMEDIA_TYPE_VIDEO]);
     }
     if (is->show_mode == SHOW_MODE_NONE)
         is->show_mode = ret >= 0 ? SHOW_MODE_VIDEO : SHOW_MODE_RDFT;
@@ -2962,6 +3067,7 @@ static int read_thread(void *arg)
                 goto fail;
             }
         }
+		//»ñÈ¡Ò»Ö¡Ñ¹Ëõ±àÂëÊı¾İ£¨¼´Ò»¸öAVPacket£©¡£
         ret = av_read_frame(ic, pkt);
         if (ret < 0) {
             if ((ret == AVERROR_EOF || avio_feof(ic->pb)) && !is->eof) {
@@ -3066,6 +3172,7 @@ static VideoState *stream_open(const char *filename, AVInputFormat *iformat)
     is->audio_volume = startup_volume;
     is->muted = 0;
     is->av_sync_type = av_sync_type;
+	//¶ÁÈ¡Ã½ÌåĞÅÏ¢Ïß³Ì¡£
     is->read_tid     = SDL_CreateThread(read_thread, "read_thread", is);
     if (!is->read_tid) {
         av_log(NULL, AV_LOG_FATAL, "SDL_CreateThread(): %s\n", SDL_GetError());
@@ -3216,6 +3323,31 @@ static void seek_chapter(VideoState *is, int incr)
     stream_seek(is, av_rescale_q(is->ic->chapters[i]->start, is->ic->chapters[i]->time_base,
                                  AV_TIME_BASE_Q), 0, 0);
 }
+/*
+FFplayÔÙ´ò¿ªÃ½ÌåÖ®ºó£¬±ã»á½øÈëevent_loop()º¯Êı£¬ÓÀÔ¶²»Í£µÄÑ­»·ÏÂÈ¥¡£
+¸ÃÑ­»·È·ÊµÊÇÎŞÖ¹¾¡µÄ£¬ÆäĞÎÊ½ÎªÈçÏÂ:
+
+SDL_Event event;  
+for (;;) {  
+    SDL_WaitEvent(&event);  
+        switch (event.type) {  
+        case SDLK_ESCAPE:  
+        case SDLK_q:  
+                do_exit(cur_stream);  
+                break;  
+        case SDLK_f:  
+        ¡­  
+        ¡­  
+        }  
+}  
+¸ù¾İevent_loop()ÖĞSDL_WaitEvent()½ÓÊÕµ½µÄSDL_EventÀàĞÍµÄ²»Í¬£¬»áµ÷ÓÃ²»Í¬µÄº¯Êı½øĞĞ´¦Àí£¨´Ó±à³ÌµÄ½Ç¶ÈÀ´Ëµ¾ÍÊÇÒ»¸öswitch()Óï·¨£©¡£
+SDLK_ESCAPE£¨°´ÏÂ¡°ESC¡±¼ü£©£ºdo_exit()¡£ÍË³ö³ÌĞò¡£
+SDLK_f£¨°´ÏÂ¡°f¡±¼ü£©£ºtoggle_full_screen()¡£ÇĞ»»È«ÆÁÏÔÊ¾¡£
+SDLK_SPACE£¨°´ÏÂ¡°¿Õ¸ñ¡±¼ü£©£ºtoggle_pause()¡£ÇĞ»»¡°ÔİÍ£¡±¡£
+SDLK_DOWN£¨°´ÏÂÊó±ê¼ü£©£ºstream_seek()¡£Ìø×ªµ½Ö¸¶¨µÄÊ±¼äµã²¥·Å¡£
+SDL_VIDEORESIZE£¨´°¿Ú´óĞ¡·¢Éú±ä»¯£©£ºSDL_SetVideoMode()¡£ÖØĞÂÉèÖÃ¿í¸ß¡£
+FF_REFRESH_EVENT£¨ÊÓÆµË¢ĞÂÊÂ¼ş£¨×Ô¶¨ÒåÊÂ¼ş£©£©£ºvideo_refresh()¡£Ë¢ĞÂÊÓÆµ¡£
+*/
 
 /* handle an event sent by the GUI */
 static void event_loop(VideoState *cur_stream)
@@ -3533,14 +3665,16 @@ static int dummy;
 //Ñ¡ÏîËµÃ÷ÊÇ"force displayed width"¡£
 
 //È«ÆÁ£¨¡°-fs¡±Ñ¡Ïî£©
-//´Ó´úÂëÖĞ¿ÉÒÔ¿´³ö£¬¡°-fs¡±Ñ¡Ïî°üº¬²¼¶ûĞÍÑ¡ÏîÖµ£¨OPT_BOOL£©£¬²¢°ó¶¨ÁËÈ«¾Ö±äÁ¿is_full_screen¡£
-//Ñ¡ÏîËµÃ÷ÊÇ"force full screen"¡£
+//´Ó´úÂëÖĞ¿ÉÒÔ¿´³ö£¬
 static const OptionDef options[] = {
     CMDUTILS_COMMON_OPTIONS
+	//´Ó´úÂëÖĞ¿ÉÒÔ¿´³ö£¬¡°-x¡±Ñ¡Ïî°üº¬Ñ¡ÏîÖµ£¨HAS_ARG£©£¬Ñ¡Ïî´¦Àíº¯ÊıÊÇopt_width()¡£Ñ¡ÏîËµÃ÷ÊÇ"force displayed width"
     { "x", HAS_ARG, { .func_arg = opt_width }, "force displayed width", "width" },
     { "y", HAS_ARG, { .func_arg = opt_height }, "force displayed height", "height" },
     { "s", HAS_ARG | OPT_VIDEO, { .func_arg = opt_frame_size }, "set frame size (WxH or abbreviation)", "size" },
-    { "fs", OPT_BOOL, { &is_full_screen }, "force full screen" },
+	//¡°-fs¡±Ñ¡Ïî°üº¬²¼¶ûĞÍÑ¡ÏîÖµ£¨OPT_BOOL£©£¬²¢°ó¶¨ÁËÈ«¾Ö±äÁ¿is_full_screen¡£
+	//Ñ¡ÏîËµÃ÷ÊÇ"force full screen"¡£
+	{ "fs", OPT_BOOL, { &is_full_screen }, "force full screen" },
     { "an", OPT_BOOL, { &audio_disable }, "disable audio" },
     { "vn", OPT_BOOL, { &video_disable }, "disable video" },
     { "sn", OPT_BOOL, { &subtitle_disable }, "disable subtitling" },
