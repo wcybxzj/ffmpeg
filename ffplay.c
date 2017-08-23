@@ -2953,7 +2953,7 @@ static int read_thread(void *arg)
 
     /* open the streams */
     if (st_index[AVMEDIA_TYPE_AUDIO] >= 0) {
-		//·Ö±ğ´ò¿ªÊÓÆµ/ÒôÆµ/×ÖÄ»½âÂëÏß³Ì¡
+		//·Ö±ğ´ò¿ªÊÓÆµ/ÒôÆµ/×ÖÄ»½âÂëÏß³Ì?
         stream_component_open(is, st_index[AVMEDIA_TYPE_AUDIO]);
     }
 
