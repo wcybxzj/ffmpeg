@@ -506,7 +506,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return 0;
 }
 
-
+//打开输入文件，初始化输入视频码流的AVFormatContext。
 int avformat_open_input(AVFormatContext **ps, const char *filename,
                         AVInputFormat *fmt, AVDictionary **options)
 {
@@ -4376,6 +4376,7 @@ void avformat_close_input(AVFormatContext **ps)
 // 引入 #include "libavformat/avformat.h"
 // 再打开源文件时用户一般不需要直接调用该方法
 
+//创建输出码流的AVStream。
 AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
 {
     AVStream *st;

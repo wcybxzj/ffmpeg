@@ -382,6 +382,12 @@ static void register_all(void)
     REGISTER_DEMUXER (LIBOPENMPT,       libopenmpt);
 }
 
+// 初始化 libavformat和注册所有的muxers、demuxers和protocols，
+// 一般在调用avcodec_init后调用该方法
+// 引入头文件：#include "libavformat/avformat.h"
+// 实现在:\ffmpeg\libavformat\allformats.c
+// 其中会调用avcodec_register_all()注册多种音视频格式的编解码器,并注册各种文件的编解复用器
+// 当然，你也可以不调用该函数，而通过选择调用特定的方法来提供支持
 void av_register_all(void)
 {
     AVOnce control = AV_ONCE_INIT;

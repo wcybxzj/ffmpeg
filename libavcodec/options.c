@@ -213,6 +213,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     avctx->extradata_size = 0;
 }
 
+//拷贝输入视频码流的AVCodecContex的数值到输出视频的AVCodecContext。
 int avcodec_copy_context(AVCodecContext *dest, const AVCodecContext *src)
 {
     const AVCodec *orig_codec = dest->codec;

@@ -30,6 +30,8 @@
 #include "bytestream.h"
 #include "internal.h"
 
+// 使用默认值初始化AVPacket
+// 定义AVPacket对象后,请使用av_init_packet进行初始化
 void av_init_packet(AVPacket *pkt)
 {
     pkt->pts                  = AV_NOPTS_VALUE;

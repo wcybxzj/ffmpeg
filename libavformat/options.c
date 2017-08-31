@@ -129,6 +129,14 @@ static void avformat_get_context_defaults(AVFormatContext *s)
     av_opt_set_defaults(s);
 }
 
+// 分配一个AVFormatContext结构
+// 引入头文件：#include "libavformat/avformat.h"
+// 实现在:\ffmpeg\libavformat\options.c
+// 其中负责申请一个AVFormatContext结构的内存,并进行简单初始化
+// avformat_free_context()可以用来释放该结构里的所有东西以及该结构本身
+// 也是就说使用 avformat_alloc_context()分配的结构,
+// 需要使用avformat_free_context()来释放
+// 有些版本中函数名可能为: av_alloc_format_context();
 AVFormatContext *avformat_alloc_context(void)
 {
     AVFormatContext *ic;

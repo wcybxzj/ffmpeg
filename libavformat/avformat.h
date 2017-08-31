@@ -1406,7 +1406,8 @@ typedef struct AVFormatInternal AVFormatInternal;
 // 引入头文件：#include "libavformat/avformat.h"
 // 作为输入容器时,也就是解码情况下:
 // struct AVInputFormat *iformat; 
-// 不能为空, 其中包含了输入文件的音视频流信息,程序从输入容器从读出音视频包进行解码处理作为输出容器时
+// 不能为空, 其中包含了输入文件的音视频流信息,程序从输入容器从读出音视频包进行解码处理
+//作为输出容器时
 // struct AVOutputFormat *oformat; 
 // 不能为空, 程序把编码好的音视频包写入到输出容器中
 // AVIOContext *pb: // I/O上下文,通过对该变量赋值可以改变输入源或输出目的
@@ -2103,6 +2104,7 @@ const char *avformat_configuration(void);
  * Return the libavformat license.
  */
 const char *avformat_license(void);
+
 
 /**
  * Initialize libavformat and register all the muxers, demuxers and

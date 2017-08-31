@@ -125,6 +125,14 @@ int ffio_init_context(AVIOContext *s,
     return 0;
 }
 
+// 为I/0缓存申请并初始化一个AVIOContext结构,结束使用时必须使用av_free()进行释放
+// unsigned char *buffer: 输入/输出缓存内存块,必须是使用av_malloc()分配的
+// int buffer_size: 缓存大小是非常重要的
+// int write_flag: 如果缓存为可写则设置为1,否则设置为0
+// void *opaque: 指针,用于回调时使用
+// int (*read_packet): 读包函数指针
+// int (*write_packet): 写包函数指针
+// int64_t (*seek): seek文件函数指针
 AVIOContext *avio_alloc_context(
                   unsigned char *buffer,
                   int buffer_size,
@@ -1057,6 +1065,7 @@ int ffio_rewind_with_probe_data(AVIOContext *s, unsigned char **bufp, int buf_si
     return 0;
 }
 
+//打开输出文件。
 int avio_open(AVIOContext **s, const char *filename, int flags)
 {
     return avio_open2(s, filename, flags, NULL, NULL);

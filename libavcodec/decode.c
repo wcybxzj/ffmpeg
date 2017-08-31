@@ -786,6 +786,15 @@ finish:
     return ret;
 }
 
+// 解码视频流AVPacket
+// 使用av_read_frame读取媒体流后需要进行判断,如果为视频流则调用该函数解码
+// 返回结果<0时失败,此时程序应该退出检查原因
+// 返回>=0时正常,假设 读取包为:AVPacket vPacket 返回值为 int vLen; 
+// 每次解码正常时,对vPacket做如下处理:
+//   vPacket.size -= vLen;
+//   vPacket.data += vLen;
+// 如果 vPacket.size==0,则继续读下一流包,否则继续调度该方法进行解码,直到vPacket.size==0
+// 返回 got_picture_ptr > 0 时,表示解码到了AVFrame *picture,其后可以对picture进程处理
 int attribute_align_arg avcodec_decode_video2(AVCodecContext *avctx, AVFrame *picture,
                                               int *got_picture_ptr,
                                               const AVPacket *avpkt)

@@ -196,6 +196,19 @@ ByteIOContext结构扩展URLProtocol结构成内部有缓冲机制的广泛意义上的文件，
 opaque关联字段用于关联URLContext 结构，间接关联并扩展URLProtocol结构
 */
 //ByteIOContext 改名为AVIOContext
+
+// 字节流 I/O 上下文
+// 在结构的尾部增加变量可以减少版本冲突
+// 移除、排序和修改已经存在的变量将会导致较大的版本冲突
+// sizeof(AVIOContext)在libav*.外部不可使用
+// AVIOContext里的函数指针不能直接调用,通常使用avio_alloc_context()函数来设置其中的函数指针
+// unsigned char *buffer: 缓存的起始指针
+// int buffer_size: 缓存的最大值
+// void *opaque: 在回调函数中使用的指针
+// int (*read_packet)(void *opaque, uint8_t *buf,int buf_size): 读文件回调方法
+// int (*write_packet)(void *opaque, uint8_t *buf,int buf_size): 写文件回调方法
+// int64_t (*seek)(void *opaque, int64_t offset,int whence): seek文件回调方法
+
 typedef struct AVIOContext {
     /**
      * A class for private options.

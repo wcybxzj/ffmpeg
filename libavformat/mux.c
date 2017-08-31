@@ -145,6 +145,7 @@ enum AVChromaLocation ff_choose_chroma_location(AVFormatContext *s, AVStream *st
 
 }
 
+//初始化输出视频码流的AVFormatContext。
 int avformat_alloc_output_context2(AVFormatContext **avctx, AVOutputFormat *oformat,
                                    const char *format, const char *filename)
 {
@@ -516,6 +517,7 @@ int avformat_init_output(AVFormatContext *s, AVDictionary **options)
     return AVSTREAM_INIT_IN_WRITE_HEADER;
 }
 
+//写文件头（对于某些没有文件头的封装格式，不需要此函数。比如说MPEG2TS）。
 int avformat_write_header(AVFormatContext *s, AVDictionary **options)
 {
     int ret = 0;
@@ -1242,6 +1244,7 @@ static int interleave_packet(AVFormatContext *s, AVPacket *out, AVPacket *in, in
         return ff_interleave_packet_per_dts(s, out, in, flush);
 }
 
+//将AVPacket（存储视频压缩码流数据）写入文件。
 int av_interleaved_write_frame(AVFormatContext *s, AVPacket *pkt)
 {
     int ret, flush = 0;
@@ -1304,6 +1307,7 @@ fail:
     return ret;
 }
 
+//写文件尾（对于某些没有文件头的封装格式，不需要此函数。比如说MPEG2TS）。
 int av_write_trailer(AVFormatContext *s)
 {
     int ret, i;

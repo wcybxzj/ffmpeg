@@ -154,6 +154,13 @@ AVCodec *av_codec_next(const AVCodec *c)
         return first_avcodec;
 }
 
+// 初始化libavcodec,一般最先调用该函数
+// 引入头文件： #include "libavcodec/avcodec.h"
+// 实现在: \ffmpeg\libavcodec\utils.c
+// 该函数必须在调用libavcodec里的其它函数前调用,一般在程序启动或模块初始化时调用,
+// 如果你调用了多次也无所谓,因为后面的调用不会做任何事情.
+// 从函数的实现里你可以发现,代码中对多次调用进行了控制.
+// 该函数是非线程安全的
 static av_cold void avcodec_init(void)
 {
     static int initialized = 0;
@@ -624,6 +631,7 @@ int attribute_align_arg ff_codec_open2_recursive(AVCodecContext *avctx, const AV
     return ret;
 }
 
+// 使用给定的AVCodec初始化AVCodecContext
 int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options)
 {
     int ret = 0;
@@ -1253,11 +1261,23 @@ static AVCodec *find_encdec(enum AVCodecID id, int encoder)
     return experimental;
 }
 
+// 通过code ID查找一个已经注册的音视频编码器
+// 引入 #include "libavcodec/avcodec.h"
+// 实现在: \ffmpeg\libavcodec\utils.c
+// 查找编码器之前,必须先调用av_register_all注册所有支持的编码器
+// 查找成功返回编码器指针,否则返回NULL
+// 音视频编码器保存在一个链表中,查找过程中,函数从头到尾遍历链表,通过比较编码器的ID来查找
 AVCodec *avcodec_find_encoder(enum AVCodecID id)
 {
     return find_encdec(id, 1);
 }
 
+// 通过一个指定的名称查找一个已经注册的音视频编码器
+// 引入 #include "libavcodec/avcodec.h"
+// 实现在: \ffmpeg\libavcodec\utils.c
+// 查找编码器之前,必须先调用av_register_all注册所有支持的编码器
+// 查找成功返回编码器指针,否则返回NULL
+// 音视频编码器保存在一个链表中,查找过程中,函数从头到尾遍历链表,通过比较编码器的名称来查找
 AVCodec *avcodec_find_encoder_by_name(const char *name)
 {
     AVCodec *p;
@@ -1272,11 +1292,23 @@ AVCodec *avcodec_find_encoder_by_name(const char *name)
     return NULL;
 }
 
+// 通过code ID查找一个已经注册的音视频解码器
+// 引入 #include "libavcodec/avcodec.h"
+// 实现在: \ffmpeg\libavcodec\utils.c
+// 查找解码器之前,必须先调用av_register_all注册所有支持的解码器
+// 查找成功返回解码器指针,否则返回NULL
+// 音视频解码器保存在一个链表中,查找过程中,函数从头到尾遍历链表,通过比较解码器的ID来查找
 AVCodec *avcodec_find_decoder(enum AVCodecID id)
 {
     return find_encdec(id, 0);
 }
 
+// 通过一个指定的名称查找一个已经注册的音视频解码器
+// 引入 #include "libavcodec/avcodec.h"
+// 实现在: \ffmpeg\libavcodec\utils.c
+// 查找解码器之前,必须先调用av_register_all注册所有支持的解码器
+// 查找成功返回解码器指针,否则返回NULL
+// 音视频解码器保存在一个链表中,查找过程中,函数从头到尾遍历链表,通过比较解码器的name来查找
 AVCodec *avcodec_find_decoder_by_name(const char *name)
 {
     AVCodec *p;
