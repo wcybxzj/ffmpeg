@@ -76,6 +76,14 @@
 /**
  * Rounding methods.
  */
+
+/*
+AV_ROUND_ZERO     = 0, // Round toward zero.      趋近于0  
+AV_ROUND_INF      = 1, // Round away from zero.   趋远于0  
+AV_ROUND_DOWN     = 2, // Round toward -infinity. 趋于更小的整数  
+AV_ROUND_UP       = 3, // Round toward +infinity. 趋于更大的整数  
+AV_ROUND_NEAR_INF = 5, // Round to nearest and halfway cases away from zero.  
+*/                    //                         四舍五入,小于0.5取值趋向0,大于0.5取值趋远于0  
 enum AVRounding {
     AV_ROUND_ZERO     = 0, ///< Round toward zero.
     AV_ROUND_INF      = 1, ///< Round away from zero.

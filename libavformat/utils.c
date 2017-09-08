@@ -4101,6 +4101,23 @@ AVProgram *av_find_program_from_stream(AVFormatContext *ic, AVProgram *last, int
     return NULL;
 }
 
+
+/*
+1. av_find_best_stream
+a. 就是要获取音视频及字幕的stream_index
+b.以前没有函数av_find_best_stream时，获取索引可以通过如下
+for(i=0; i<is->pFormatCtx->nb_streams; i++)
+    { 
+        if(is->pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+        {
+            is->videoindex= i;
+        }
+        if(is->pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO)
+        {
+            is->sndindex= i;
+        }
+    }
+*/
 int av_find_best_stream(AVFormatContext *ic, enum AVMediaType type,
                         int wanted_stream_nb, int related_stream,
                         AVCodec **decoder_ret, int flags)

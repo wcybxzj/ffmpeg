@@ -55,6 +55,7 @@ int64_t av_gcd(int64_t a, int64_t b) {
     return (uint64_t)u << k;
 }
 
+//直接看代码, 它的作用是计算 "a * b / c" 的值并分五种方式来取整.
 int64_t av_rescale_rnd(int64_t a, int64_t b, int64_t c, enum AVRounding rnd)
 {
     int64_t r = 0;
@@ -139,6 +140,12 @@ int64_t av_rescale_q_rnd(int64_t a, AVRational bq, AVRational cq,
     return av_rescale_rnd(a, b, c, rnd);
 }
 
+/*
+av_rescale_q(pts, timebase1, timebase2)或者av_rescale_q_rnd(pts, timebase1, timebase2, XX)时
+其实就是按照下面的公式计算了一下， 
+公式如下：  
+x = pts * (timebase1.num / timebase1.den )* (timebase2.den / timebase2.num);
+*/
 int64_t av_rescale_q(int64_t a, AVRational bq, AVRational cq)
 {
     return av_rescale_q_rnd(a, bq, cq, AV_ROUND_NEAR_INF);
