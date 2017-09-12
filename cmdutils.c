@@ -133,6 +133,13 @@ void register_exit(void (*cb)(int ret))
 }
 
 //exit_program()主要完成了清理工作
+/*
+调用了如下函数：
+avfilter_graph_free()：释放AVFilterGraph。
+avformat_free_context()：释放输出文件的AVFormatContext。
+av_bitstream_filter_close()：关闭AVBitStreamFilter。
+avformat_close_input()：关闭输入文件。
+*/
 void exit_program(int ret)
 {
     if (program_exit)

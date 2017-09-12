@@ -446,6 +446,7 @@ static int set_string_sample_fmt(void *obj, const AVOption *o, const char *val, 
                           AV_SAMPLE_FMT_NB, av_get_sample_fmt, "sample format");
 }
 
+//av_opt_set 是设置AVOptions的参数
 int av_opt_set(void *obj, const char *name, const char *val, int search_flags)
 {
     int ret = 0;

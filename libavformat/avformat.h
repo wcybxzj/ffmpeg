@@ -482,6 +482,9 @@ typedef struct AVProbeData {
 #define AVFMT_RAWPICTURE    0x0020 /**< Format wants AVPicture structure for
                                       raw picture data. @deprecated Not used anymore */
 #endif
+
+//https://stackoverflow.com/questions/33147402/ffmpeg-malformed-aac-bitstream-detected-use-the-audio-bitstream-filter-aac-ad/33149565#33149565
+//AV_CODEC_FLAG_GLOBAL_HEADER, which means all stream should contains stream data only, and other data is provided by setting AVCodecContext.extradata
 #define AVFMT_GLOBALHEADER  0x0040 /**< Format wants global header. */
 #define AVFMT_NOTIMESTAMPS  0x0080 /**< Format does not need / have any timestamps. */
 #define AVFMT_GENERIC_INDEX 0x0100 /**< Use generic index building code. */

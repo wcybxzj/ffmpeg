@@ -1436,6 +1436,15 @@ do_video_out()：编码视频。
 avfilter_unref_buffer()：释放资源。
 */
 
+//reap_filters()主要完成了编码的工作。
+/*
+reap_filters()调用了如下函数
+av_buffersink_get_buffer_ref()：从AVFilterContext中取出一帧解码后的数据（结构为AVFilterBufferRef，可以转换为AVFrame）。
+avfilter_copy_buf_props()：AVFilterBufferRef转换为AVFrame。
+do_audio_out()：编码音频。
+do_video_out()：编码视频。
+avfilter_unref_buffer()：释放资源。
+*/
 /**
  * Get and encode new output from any of the filtergraphs, without causing
  * activity.
@@ -2006,6 +2015,7 @@ static int check_output_constraints(InputStream *ist, OutputStream *ost)
     return 1;
 }
 
+//do_streamcopy()：如果不需要重新编码的话，则调用此函数，一般用于封装格式之间的转换。速度比转码快很多。
 static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *pkt)
 {
     OutputFile *of = output_files[ost->file_index];
@@ -2283,13 +2293,14 @@ static int decode(AVCodecContext *avctx, AVFrame *frame, int *got_frame, AVPacke
     *got_frame = 0;
 
     if (pkt) {
+		//解码一帧视频。 发出去的packet
         ret = avcodec_send_packet(avctx, pkt);
         // In particular, we don't expect AVERROR(EAGAIN), because we read all
         // decoded frames with avcodec_receive_frame() until done.
         if (ret < 0 && ret != AVERROR_EOF)
             return ret;
     }
-
+	//解码一帧视频 收回来的是frame
     ret = avcodec_receive_frame(avctx, frame);
     if (ret < 0 && ret != AVERROR(EAGAIN))
         return ret;
@@ -2326,6 +2337,7 @@ static int send_frame_to_filters(InputStream *ist, AVFrame *decoded_frame)
 }
 
 //decode_audio()调用的函数和decode_video()基本一样。唯一的不同在于其解码音频的函数是avcodec_decode_audio4()
+//decode_audio()：解码音频（并不一定是一帧，是一个AVPacket）。
 static int decode_audio(InputStream *ist, AVPacket *pkt, int *got_output,
                         int *decode_failed)
 {
@@ -2390,6 +2402,7 @@ static int decode_audio(InputStream *ist, AVPacket *pkt, int *got_output,
     return err < 0 ? err : ret;
 }
 
+//decode_video()：解码一帧视频(packet->frame)（一个AVPacket）。
 static int decode_video(InputStream *ist, AVPacket *pkt, int *got_output, int eof,
                         int *decode_failed)
 {
@@ -4500,6 +4513,12 @@ transcode_from_filter()：未分析。
 reap_filters()：完成编码工作。
 */
 
+/*
+transcode_step()调用了如下函数：
+process_input()：完成解码工作。
+transcode_from_filter()：未分析。
+reap_filters()：完成编码工作。
+*/
 /**
  * Run a single step of transcoding.
  *
@@ -4578,7 +4597,15 @@ print_report()：打印转码信息，输出到屏幕上。
 flush_encoder()：输出编码器中剩余的帧。
 其中check_keyboard_interaction()，transcode_step()，print_report()三个函数位于一个循环之中会不断地执行。
 */
-
+/*
+调用了如下函数
+transcode_init()：转码的初始化工作。
+check_keyboard_interaction()：检测键盘操作。例如转码的过程中按下“Q”键之后，会退出转码。
+transcode_step()：进行转码。
+print_report()：打印转码信息，输出到屏幕上。
+flush_encoder()：输出编码器中剩余的帧。
+check_keyboard_interaction()，transcode_step()，print_report()三个函数位于一个循环之中不断地执行。
+*/
 /*
  * The following code is the main loop of the file converter
  */
@@ -4766,6 +4793,13 @@ static void log_callback_null(void *ptr, int level, const char *fmt, va_list vl)
 {
 }
 
+/*
+av_register_all()：注册所有编码器和解码器。
+show_banner()：打印输出FFmpeg版本信息（编译时间，编译选项，类库信息等）。
+parse_options()：解析输入的命令。
+transcode()：转码。
+exit_progam()：退出和清理。
+*/
 int main(int argc, char **argv)
 {
     int i, ret;
