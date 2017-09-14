@@ -1664,6 +1664,14 @@ typedef struct AVPacket
 } AVPacket;
 AVPacket 代表音视频数据帧，固有的属性是一些标记，时钟信息，和压缩数据首地址，大小等信息。
 */
+
+/*
+AVPacket
+初始化函数有两个：av_init_packet()，av_new_packet()。
+销毁函数是av_free_packet()。
+在初始化函数中av_init_packet()比较简单，初始化一些字段；
+而av_new_packet()相对“高级”，除含av_init_packet()的功能之外，还含AVPacket内部内存的分配。
+*/
 typedef struct AVPacket {
     /**
      * A reference to the reference-counted buffer where the packet data is

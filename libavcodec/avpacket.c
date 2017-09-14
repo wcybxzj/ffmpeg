@@ -69,6 +69,9 @@ void av_packet_free(AVPacket **pkt)
     av_packet_unref(*pkt);
     av_freep(pkt);
 }
+/*
+调用av_buffer_realloc()为AVPacket分配内存。然后调用memset()将分配的内存置0。
+*/
 
 static int packet_alloc(AVBufferRef **buf, int size)
 {
@@ -280,6 +283,10 @@ void av_packet_free_side_data(AVPacket *pkt)
 
 #if FF_API_AVPACKET_OLD_API
 FF_DISABLE_DEPRECATION_WARNINGS
+/*
+av_free_packet()调用av_buffer_unref()释放AVPacket中的数据，
+而后还调用了av_packet_free_side_data()释放了side_data（存储封装格式可以提供的额外的数据）。
+*/
 void av_free_packet(AVPacket *pkt)
 {
     if (pkt) {

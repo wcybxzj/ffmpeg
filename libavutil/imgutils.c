@@ -405,7 +405,15 @@ void av_image_copy_uc_from(uint8_t *dst_data[4], const ptrdiff_t dst_linesizes[4
     image_copy(dst_data, dst_linesizes, src_data, src_linesizes, pix_fmt,
                width, height, image_copy_plane_uc_from);
 }
+/*
+av_image_fill_arrays 对 AVFrame中的像素数据的空间需要自行分配空间
 
+av_image_fill_arrays()函数中包含3个函数：
+av_image_check_size()用于检查输入的宽高参数是否合理，即不能太大或者为负数。
+av_image_fill_linesizes()用于填充dst_linesize。
+av_image_fill_pointers()则用于填充dst_data。它们的定义相对比较简单，不再详细分析。
+av_image_check_size()代码如下所示。
+*/
 int av_image_fill_arrays(uint8_t *dst_data[4], int dst_linesize[4],
                          const uint8_t *src, enum AVPixelFormat pix_fmt,
                          int width, int height, int align)

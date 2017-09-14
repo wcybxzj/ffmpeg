@@ -313,8 +313,9 @@ motion_val[direction][x + y*mv_stride][0->mv_x, 1->mv_y];
 块包含有 4 个该值，该值反映的是参考帧的索引。以后有机会再进行细研究吧。
 */
 
-
-
+/*
+AVFrame的初始化函数是av_frame_alloc()，销毁函数是av_frame_free()。
+*/
 typedef struct AVFrame {
 #define AV_NUM_DATA_POINTERS 8
     /**图像数据 

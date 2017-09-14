@@ -632,12 +632,25 @@ int attribute_align_arg ff_codec_open2_recursive(AVCodecContext *avctx, const AV
 }
 
 // 使用给定的AVCodec初始化AVCodecContext
+/*
+
+avcodec_open2()的源代码量是非常长的，
+但是它的调用关系非常简单——它只调用了一个关键的函数，即AVCodec的init()
+我们可以简单梳理一下avcodec_open2()所做的工作，如下所列：
+（1）为各种结构体分配内存（通过各种av_malloc()实现）。
+（2）将输入的AVDictionary形式的选项设置到AVCodecContext。
+（3）其他一些零零碎碎的检查，比如说检查编解码器是否处于“实验”阶段。
+（4）如果是编码器，检查输入参数是否符合编码器的要求
+（5）调用AVCodec的init()初始化具体的解码器。
+前几步比较简单，不再分析。在这里我们分析一下第4步和第5步。
+*/
 int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options)
 {
     int ret = 0;
     AVDictionary *tmp = NULL;
     const AVPixFmtDescriptor *pixdesc;
-
+	
+    //如果已经打开，直接返回  
     if (avcodec_is_open(avctx))
         return 0;
 
@@ -662,7 +675,8 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     ret = ff_lock_avcodec(avctx, codec);
     if (ret < 0)
         return ret;
-
+	
+	//各种Malloc  
     avctx->internal = av_mallocz(sizeof(AVCodecInternal));
     if (!avctx->internal) {
         ret = AVERROR(ENOMEM);
@@ -730,6 +744,8 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     } else {
         avctx->priv_data = NULL;
     }
+	
+    //将输入的AVDictionary形式的选项设置到AVCodecContext  
     if ((ret = av_opt_set_dict(avctx, &tmp)) < 0)
         goto free_and_end;
 
@@ -750,13 +766,15 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
         goto free_and_end;
     }
 
+	//检查宽和高  
     if ((avctx->coded_width || avctx->coded_height || avctx->width || avctx->height)
         && (  av_image_check_size2(avctx->coded_width, avctx->coded_height, avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx) < 0
            || av_image_check_size2(avctx->width,       avctx->height,       avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx) < 0)) {
         av_log(avctx, AV_LOG_WARNING, "Ignoring invalid width/height values\n");
         ff_set_dimensions(avctx, 0, 0);
     }
-
+	
+    //检查宽高比  
     if (avctx->width > 0 && avctx->height > 0) {
         if (av_image_check_sar(avctx->width, avctx->height,
                                avctx->sample_aspect_ratio) < 0) {
@@ -791,7 +809,8 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     }
     avctx->frame_number = 0;
     avctx->codec_descriptor = avcodec_descriptor_get(avctx->codec_id);
-
+	
+    //检查编码器是否出于“实验”阶段  
     if ((avctx->codec->capabilities & AV_CODEC_CAP_EXPERIMENTAL) &&
         avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
         const char *codec_string = av_codec_is_encoder(codec) ? "encoder" : "decoder";
@@ -846,7 +865,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
         av_log(avctx, AV_LOG_WARNING, "The 'vismv' option is deprecated, "
                "see the codecview filter instead.\n");
 #endif
-
+    //检查输入参数是否符合【编码器】要求  
     if (av_codec_is_encoder(avctx->codec)) {
         int i;
 #if FF_API_CODED_FRAME
@@ -864,9 +883,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
             ret = AVERROR(EINVAL);
             goto free_and_end;
         }
-
+		
+		//如果包含采样率参数（表明是音频），检查采样率是否符合要求
         if (avctx->codec->sample_fmts) {
+            //遍历编码器支持的所有采样率  
             for (i = 0; avctx->codec->sample_fmts[i] != AV_SAMPLE_FMT_NONE; i++) {
+                //如果设置的采样率==编码器支持的采样率，跳出循环。  
                 if (avctx->sample_fmt == avctx->codec->sample_fmts[i])
                     break;
                 if (avctx->channels == 1 &&
@@ -876,6 +898,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
                     break;
                 }
             }
+		    //再检查一下采样率取值是否正确  
+            //注意，此时的i值没有变化
             if (avctx->codec->sample_fmts[i] == AV_SAMPLE_FMT_NONE) {
                 char buf[128];
                 snprintf(buf, sizeof(buf), "%d", avctx->sample_fmt);
@@ -885,7 +909,25 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 goto free_and_end;
             }
         }
-        if (avctx->codec->pix_fmts) {
+
+
+		/*
+		检查像素格式
+		检查输入参数是否符合编码器要求
+		在这里简单分析一下第4步，即“检查输入参数是否符合编码器的要求”。
+
+		首先进入了一个for()循环，将AVCodecContext中设定的pix_fmt与编码器AVCodec中的pix_fmts数组中的元素逐一比较。
+		先简单介绍一下AVCodec中的pix_fmts数组。
+		AVCodec中的pix_fmts数组存储了该编码器支持的像素格式，并且规定以AV_PIX_FMT_NONE（AV_PIX_FMT_NONE取值为-1）为结尾。
+		例如，libx264的pix_fmts数组的定义位于libavcodec\libx264.c，如下所示。
+
+		现在回到“检查输入pix_fmt是否符合编码器的要求”的那段代码。
+		如果for()循环从AVCodec->pix_fmts数组中找到了符合AVCodecContext->pix_fmt的像素格式，
+		或者完成了AVCodec->pix_fmts数组的遍历，都会跳出循环。
+		发现AVCodec->pix_fmts数组中索引为i的元素是AV_PIX_FMT_NONE（即最后一个元素，取值为-1）的时候，
+		就认为没有找到合适的像素格式，并且最终提示错误信息。
+		*/
+		if (avctx->codec->pix_fmts) {
             for (i = 0; avctx->codec->pix_fmts[i] != AV_PIX_FMT_NONE; i++)
                 if (avctx->pix_fmt == avctx->codec->pix_fmts[i])
                     break;
@@ -906,7 +948,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 avctx->codec->pix_fmts[i] == AV_PIX_FMT_YUVJ444P)
                 avctx->color_range = AVCOL_RANGE_JPEG;
         }
-        if (avctx->codec->supported_samplerates) {
+
+		//检查采样率  
+		if (avctx->codec->supported_samplerates) {
             for (i = 0; avctx->codec->supported_samplerates[i] != 0; i++)
                 if (avctx->sample_rate == avctx->codec->supported_samplerates[i])
                     break;
@@ -923,6 +967,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             ret = AVERROR(EINVAL);
             goto free_and_end;
         }
+		//检查声道布局 
         if (avctx->codec->channel_layouts) {
             if (!avctx->channel_layout) {
                 av_log(avctx, AV_LOG_WARNING, "Channel layout not specified\n");
@@ -939,6 +984,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 }
             }
         }
+        //检查声道数 
         if (avctx->channel_layout && avctx->channels) {
             int channels = av_get_channel_layout_nb_channels(avctx->channel_layout);
             if (channels != avctx->channels) {
@@ -959,6 +1005,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
             ret = AVERROR(EINVAL);
             goto free_and_end;
         }
+		
+        //检查码率 		
         if(avctx->codec_type == AVMEDIA_TYPE_VIDEO) {
             pixdesc = av_pix_fmt_desc_get(avctx->pix_fmt);
             if (    avctx->bits_per_raw_sample < 0
@@ -967,12 +1015,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
                     avctx->bits_per_raw_sample, pixdesc->comp[0].depth);
                 avctx->bits_per_raw_sample = pixdesc->comp[0].depth;
             }
+			//检查宽高	
             if (avctx->width <= 0 || avctx->height <= 0) {
                 av_log(avctx, AV_LOG_ERROR, "dimensions not set\n");
                 ret = AVERROR(EINVAL);
                 goto free_and_end;
             }
         }
+		
         if (   (avctx->codec_type == AVMEDIA_TYPE_VIDEO || avctx->codec_type == AVMEDIA_TYPE_AUDIO)
             && avctx->bit_rate>0 && avctx->bit_rate<1000) {
             av_log(avctx, AV_LOG_WARNING, "Bitrate %"PRId64" is extremely low, maybe you mean %"PRId64"k\n", (int64_t)avctx->bit_rate, (int64_t)avctx->bit_rate);
@@ -1023,6 +1073,20 @@ FF_ENABLE_DEPRECATION_WARNINGS
         av_log(avctx, AV_LOG_WARNING,
                "gray decoding requested but not enabled at configuration time\n");
 
+	/*
+    关键：  
+    一切检查都无误之后，调用编解码器初始化函数  
+
+	AVCodec->init()
+	avcodec_open2()中最关键的一步就是调用AVCodec的init()方法初始化具体的编码器。
+	AVCodec的init()是一个函数指针，指向具体编解码器中的初始化函数。
+	这里我们以libx264为例，看一下它对应的AVCodec的定义。
+	libx264对应的AVCodec的定义位于libavcodec\libx264.c
+
+	可以看出在ff_libx264_encoder中init()指向X264_init()。
+	X264_init()的定义同样位于libavcodec\libx264.c
+
+	*/
     if (   avctx->codec->init && (!(avctx->active_thread_type&FF_THREAD_FRAME)
         || avctx->internal->frame_thread_encoder)) {
         ret = avctx->codec->init(avctx);
@@ -1038,6 +1102,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
         avctx->delay = avctx->initial_padding;
 #endif
 
+    //【解码器】  
+    //解码器的参数大部分都是由系统自动设定而不是由用户设定，因而不怎么需要检查  
     if (av_codec_is_decoder(avctx->codec)) {
         if (!avctx->bit_rate)
             avctx->bit_rate = get_bit_rate(avctx);
@@ -1167,7 +1233,15 @@ void avsubtitle_free(AVSubtitle *sub)
 
     memset(sub, 0, sizeof(AVSubtitle));
 }
+/*
+从avcodec_close()的定义可以看出，该函数释放AVCodecContext中有关的变量，
+并且调用了AVCodec的close()关闭了解码器。
 
+AVCodec的close()是一个函数指针，指向了特定编码器的关闭函数。
+在这里我们以libx264为例，看一下它对应的AVCodec的结构体的定义.
+libavcodec/libx264.c ff_libx264_encoder 。
+从ff_libx264_encoder的定义可以看出：close()函数对应的是X264_close()函数。
+*/
 av_cold int avcodec_close(AVCodecContext *avctx)
 {
     int i;
@@ -1183,6 +1257,8 @@ av_cold int avcodec_close(AVCodecContext *avctx)
         }
         if (HAVE_THREADS && avctx->internal->thread_ctx)
             ff_thread_free(avctx);
+
+        //关闭编解码器  
         if (avctx->codec && avctx->codec->close)
             avctx->codec->close(avctx);
         avctx->internal->byte_buffer_size = 0;
@@ -1243,6 +1319,16 @@ static enum AVCodecID remap_deprecated_codec_id(enum AVCodecID id)
     }
 }
 
+/*
+find_encdec()中有一个循环，该循环会遍历AVCodec结构的链表，
+逐一比较输入的ID和每一个编码器的ID，直到找到ID取值相等的编码器。
+在这里有几点需要注意：
+（1）first_avcodec是一个全局变量，存储AVCodec链表的第一个元素。
+（2）remap_deprecated_codec_id()用于将一些过时的编码器ID映射到新的编码器ID。
+（3）函数的第二个参数encoder用于确定查找编码器还是解码器。
+     当该值为1的时候，用于查找编码器，此时会调用av_codec_is_encoder()判断AVCodec是否为编码器；
+     当该值为0的时候，用于查找解码器，此时会调用av_codec_is_decoder()判断AVCodec是否为解码器。
+*/
 static AVCodec *find_encdec(enum AVCodecID id, int encoder)
 {
     AVCodec *p, *experimental = NULL;
@@ -1293,6 +1379,8 @@ AVCodec *avcodec_find_encoder_by_name(const char *name)
 }
 
 // 通过code ID查找一个已经注册的音视频解码器
+// 实质就是遍历AVCodec链表并且获得符合条件的元素
+//函数的参数是一个编码器的ID，返回查找到的编码器（没有找到就返回NULL）。
 // 引入 #include "libavcodec/avcodec.h"
 // 实现在: \ffmpeg\libavcodec\utils.c
 // 查找解码器之前,必须先调用av_register_all注册所有支持的解码器

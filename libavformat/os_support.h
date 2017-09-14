@@ -67,6 +67,8 @@
 #  define lseek(f,p,w) lseek64((f), (p), (w))
 #endif
 
+//注意“&&”优先级低于“==”。
+//如果文件路径第1个字符不为空（一般情况下是盘符）而且第2个字符为“:”，就认为它是绝对文件路径。
 static inline int is_dos_path(const char *path)
 {
 #if HAVE_DOS_PATHS

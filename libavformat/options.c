@@ -117,6 +117,7 @@ static void io_close_default(AVFormatContext *s, AVIOContext *pb)
     avio_close(pb);
 }
 
+//该函数用于设置AVFormatContext的字段的默认值
 static void avformat_get_context_defaults(AVFormatContext *s)
 {
     memset(s, 0, sizeof(AVFormatContext));

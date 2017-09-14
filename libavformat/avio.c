@@ -69,7 +69,14 @@ const AVClass ffurl_context_class = {
     .child_class_next = ff_urlcontext_child_class_next,
 };
 /*@}*/
-
+/*
+url_alloc_for_protocol()Íê³ÉÁËÒÔÏÂ²½Öè£º
+Ê×ÏÈ£¬¼ì²éÊäÈëµÄURLProtocolÊÇ·ñÖ§³ÖÖ¸¶¨µÄflag¡£
+±ÈÈçflagÖÐÈç¹ûÖ¸¶¨ÁËAVIO_FLAG_READ£¬ÔòURLProtocolÖÐ±ØÐë°üº¬url_read()£»
+Èç¹ûÖ¸¶¨ÁËAVIO_FLAG_WRITE£¬ÔòURLProtocolÖÐ±ØÐë°üº¬url_write()¡£
+ÔÚ¼ì²éÎÞÎóÖ®ºó£¬½Ó×Å¾Í¿ÉÒÔµ÷ÓÃav_mallocz()Îª¼´½«´´½¨µÄURLContext·ÖÅäÄÚ´æÁË¡£
+½ÓÏÂÀ´»ù±¾ÉÏ¾ÍÊÇ¸÷ÖÖ¸³Öµ¹¤×÷£¬ÔÚÕâÀï²»ÔÙÏêÏ¸¼ÇÂ¼¡£
+*/
 static int url_alloc_for_protocol(URLContext **puc, const URLProtocol *up,
                                   const char *filename, int flags,
                                   const AVIOInterruptCB *int_cb)
@@ -163,6 +170,16 @@ fail:
     return err;
 }
 
+//ffurl_connect()ÓÃÓÚ´ò¿ª»ñµÃµÄURLProtocol¡£
+/*
+¸Ãº¯Êý×îÖØÒªµÄº¯Êý¾ÍÊÇËüµÄµÚÒ»¾ä£
+URLProtocolÖÐÊÇ·ñ°üº¬url_open2()£¿Èç¹û°üº¬µÄ»°£¬¾Íµ÷ÓÃurl_open2()£¬·ñÔò¾Íµ÷ÓÃurl_open()¡£
+url_open()±¾ÉíÊÇURLProtocolµÄÒ»¸öº¯ÊýÖ¸Õë£¬Õâ¸öµØ·½¸ù¾Ý²»Í¬µÄÐ­Òéµ÷ÓÃµÄurl_open()¾ßÌåÊµÏÖº¯ÊýÒ²ÊÇ²»Ò»ÑùµÄ£¬
+ÀýÈç
+fileÐ­ÒéµÄurl_open()¶ÔÓ¦µÄÊÇfile_open()£¬¶øfile_open()×îÖÕµ÷ÓÃÁËopen()£¨LinuxÏÂ£¬ÀàËÆÓÚfopen()
+libRTMPÐ­ÒéµÄurl_open()¶ÔÓ¦µÄÊÇrtmp_open()£¬¶ørtmp_open()µ÷ÓÃlibRTMPµÄAPIº¯ÊýRTMP_Init()£¬RTMP_SetupURL()£¬RTMP_Connect() ÒÔ¼°RTMP_ConnectStream()¡£
+*/
+
 int ffurl_connect(URLContext *uc, AVDictionary **options)
 {
     int err;
@@ -247,7 +264,31 @@ int ffurl_handshake(URLContext *c)
     "abcdefghijklmnopqrstuvwxyz"                \
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"                \
     "0123456789+-."
+/*
+url_find_protocol()º¯Êý±íÃ÷ÁËFFmpeg¸ù¾ÝÎÄ¼þÂ·¾¶²Â²âÐ­ÒéµÄ·½·¨¡£
+¸Ãº¯ÊýÊ×ÏÈ¸ù¾Ýstrspn()º¯Êý²éÕÒ×Ö·û´®ÖÐµÚÒ»¸ö¡°·Ç×ÖÄ¸»òÊý×Ö¡±µÄ×Ö·ûµÄÎ»ÖÃ£¬²¢±£´æÔÚproto_lenÖÐ¡£
+Ò»°ãÇé¿öÏÂ£¬Ð­ÒéURLÖÐ¶¼ÊÇ°üº¬¡°:¡±µÄ£¬
+±ÈÈçËµRTMPµÄURL¸ñÊ½ÊÇ¡°rtmp://xxx¡­¡±£¬UDPµÄURL¸ñÊ½ÊÇ¡°udp://¡­¡±£¬HTTPµÄURL¸ñÊ½ÊÇ¡°http://...¡±
+Òò´Ë£¬Ò»°ãÇé¿öÏÂproto_lenµÄÊýÖµ¾ÍÊÇ¡°:¡±µÄÏÂ±ê
+£¨´ú±íÁË¡°:¡±Ç°ÃæµÄÐ­ÒéÃû³ÆµÄ×Ö·ûµÄ¸öÊý£¬ÀýÈçrtmp://µÄproto_lenÎª4£©¡£
+½ÓÏÂÀ´º¯Êý½«filenameµÄÇ°proto_len¸ö×Ö½Ú¿½±´ÖÁproto_str×Ö·û´®ÖÐ¡£
 
+PS£º
+Õâ¸öµØ·½±È½Ï¾À½á£¬Ô´´úÂëÖÐav_strlcpy()º¯ÊýµÄµÚ3¸ö²ÎÊýsizeÐ´µÄ×Ö·û´®µÄ³¤¶ÈÊÇ£¨proto_len+1£©£¬
+µ«ÊÇ²éÁËÒ»ÏÂav_strlcpy()µÄ¶¨Òå£¬·¢ÏÖ¸Ãº¯ÊýÖÁ¶à¿½±´£¨size-1£©¸ö×Ö·û¡£ÕâÃ´Ò»ÕÇÒ»Ïû£¬
+×îÖÕ»¹ÊÇ¿½±´ÁËproto_len¸ö×Ö½Ú¡£ÀýÈçRTMPÐ­Òé¾Í¿½±´ÁË¡°rtmp¡±£¬UDPÐ­Òé¾Í¿½±´ÁË¡°udp¡±¡£
+
+ÕâÀïÓÐÒ»ÖÖÀýÍâ£¬ÄÇ¾ÍÊÇÎÄ¼þÂ·¾¶¡£
+¡°ÎÄ¼þ¡±ÔÚFFmpegÖÐÒ²ÊÇÒ»ÖÖ¡°Ð­Òé¡±£¬²¢ÇÒÇ°×ºÊÇ¡°file¡±¡£
+Ò²¾ÍÊÇ±ê×¼µÄÎÄ¼þÂ·¾¶Ó¦¸ÃÊÇ¡°file://...¡±¸ñÊ½µÄ¡£
+µ«ÊÇÕâÌ«²»·ûºÏÎÒÃÇÒ»°ãÈËµÄÊ¹ÓÃÏ°¹ß£¬ÎÒÃÇÒ»°ãÊÇ²»»áÔÚÎÄ¼þÂ·¾¶Ç°Ãæ¼ÓÉÏ¡°file¡±Ð­ÒéÃû³ÆµÄ¡£
+ËùÒÔ¸Ãº¯Êý²ÉÈ¡µÄ·½·¨ÊÇ£ºÒ»µ©¼ì²â³öÀ´ÊäÈëµÄURLÊÇÎÄ¼þÂ·¾¶¶ø²»ÊÇÍøÂçÐ­Òé£¬¾Í×Ô¶¯Ïòproto_strÖÐ¿½±´¡°file¡±¡£
+
+ÆäÖÐÅÐ¶ÏÎÄ¼þÂ·¾¶ÄÇÀïÓÐÒ»¸öºÜ¸´ÔÓµÄif()Óï¾ä¡£
+¸ù¾ÝÎÒµÄÀí½â£¬¡°||¡±Ç°ÃæµÄÓï¾äÓÃÓÚÅÐ¶ÏÊÇ·ñÊÇÏà¶ÔÎÄ¼þÂ·¾¶£¬¡°||¡±ºóÃæµÄÓï¾äÓÃÓÚÅÐ¶ÏÊÇ·ñÊÇ¾ø¶ÔÂ·¾¶¡£
+ÅÐ¶Ï¾ø¶ÔÂ·¾¶µÄÊ±ºòÓÃµ½ÁËÒ»¸öº¯Êýis_dos_path()
+
+*/
 static const struct URLProtocol *url_find_protocol(const char *filename)
 {
     const URLProtocol **protocols;
@@ -289,6 +330,10 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     return NULL;
 }
 
+//ffurl_alloc()ÓÃÓÚ²éÕÒºÏÊÊµÄURLProtocol£¬²¢´´½¨Ò»¸öURLContext£»
+//url_find_protocol()¸ù¾ÝÎÄ¼þÂ·¾¶²éÕÒºÏÊÊµÄURLProtocol£¬
+//url_alloc_for_protocol()Îª²éÕÒµ½µÄURLProtocol´´½¨URLContext¡£
+
 int ffurl_alloc(URLContext **puc, const char *filename, int flags,
                 const AVIOInterruptCB *int_cb)
 {
@@ -306,6 +351,10 @@ int ffurl_alloc(URLContext **puc, const char *filename, int flags,
     return AVERROR_PROTOCOL_NOT_FOUND;
 }
 
+
+//ffurl_open_whitelist()ÓÃÓÚ³õÊ¼»¯URLContext
+//ffurl_alloc()ÓÃÓÚ²éÕÒºÏÊÊµÄURLProtocol£¬²¢´´½¨Ò»¸öURLContext£»
+//ffurl_connect()ÓÃÓÚ´ò¿ª»ñµÃµÄURLProtocol¡£
 int ffurl_open_whitelist(URLContext **puc, const char *filename, int flags,
                          const AVIOInterruptCB *int_cb, AVDictionary **options,
                          const char *whitelist, const char* blacklist,
@@ -361,6 +410,10 @@ int ffurl_open(URLContext **puc, const char *filename, int flags,
                                 int_cb, options, NULL, NULL, NULL);
 }
 
+//´Ó´úÂëÖÐ¿ÉÒÔ¿´³ö£¬ËüµÄºËÐÄÊµ¼ÊÉÏÊÇµ÷ÓÃÁËÒ»¸öÃû³ÆÎªtransfer_func()µÄº¯Êý¡£
+//¶ø¸Ãº¯Êý¾ÍÊÇretry_transfer_wrapper()µÄµÚËÄ¸ö²ÎÊý¡£
+//¸Ãº¯ÊýÊµ¼ÊÉÏÊÇ¶ÔURLProtocolµÄ¶ÁÐ´²Ù×÷ÖÐµÄ´íÎó½øÐÐÁËÒ»Ð©¡°ÈÝ´í¡±´¦Àí,
+//ÀýÈç±»ÐÅºÅ´ò¶ÏÔÙÖ´ÐÐ£¬Èç¹ûÊÇ·Ç×èÈûÔÙÖ´ÐÐÒ»´Î
 static inline int retry_transfer_wrapper(URLContext *h, uint8_t *buf,
                                          int size, int size_min,
                                          int (*transfer_func)(URLContext *h,
@@ -404,6 +457,8 @@ static inline int retry_transfer_wrapper(URLContext *h, uint8_t *buf,
     return len;
 }
 
+//¸Ãº¯ÊýÏÈÅÐ¶ÏÁËÒ»ÏÂÊäÈëµÄURLContextÊÇ·ñÖ§³Ö¡°¶Á¡±²Ù×÷£¬
+//½Ó×Åµ÷ÓÃÁËÒ»¸öº¯Êý£ºretry_transfer_wrapper()¡£
 int ffurl_read(URLContext *h, unsigned char *buf, int size)
 {
     if (!(h->flags & AVIO_FLAG_READ))

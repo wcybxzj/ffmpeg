@@ -133,6 +133,25 @@ int ffio_init_context(AVIOContext *s,
 // int (*read_packet): 读包函数指针
 // int (*write_packet): 写包函数指针
 // int64_t (*seek): seek文件函数指针
+/*
+avio_alloc_context()初始化一个AVIOContext
+buffer：AVIOContext中的Buffer。
+buffer_size：AVIOContext中的Buffer的大小。
+write_flag：设置为1则Buffer可写；否则Buffer只可读。
+opaque：实际就是URLContext
+read_packet()：读取外部数据，填充Buffer的函数。
+write_packet()：向Buffer中写入数据的函数。
+seek()：用于Seek的函数。
+
+该函数代码很简单：
+首先调用av_mallocz()为AVIOContext分配一块内存空间，
+然后将所有输入参数传递给ffio_init_context()。
+
+初始化AVIOContext的结构体的时候，
+首先将自己分配的Buffer设置为该AVIOContext的Buffer；
+然后将URLContext作为用户自定义数据（对应AVIOContext的opaque变量）提供给该AVIOContext；
+最后分别将3个函数作为该AVIOContext的读，写，跳转函数：ffurl_read()，ffurl_write()，ffurl_seek()
+*/
 AVIOContext *avio_alloc_context(
                   unsigned char *buffer,
                   int buffer_size,
@@ -905,6 +924,14 @@ static int64_t io_read_seek(void *opaque, int stream_index, int64_t timestamp, i
     return internal->h->prot->url_read_seek(internal->h, stream_index, timestamp, flags);
 }
 
+//ffio_fdopen()用于根据URLContext初始化AVIOContext。
+/*
+ffio_fdopen()函数首先初始化AVIOContext中的Buffer。
+如果URLContext中设置了max_packet_size，则将Buffer的大小设置为max_packet_size。
+如果没有设置的话（似乎大部分URLContext都没有设置该值），
+则会分配IO_BUFFER_SIZE个字节给Buffer。IO_BUFFER_SIZE取值为32768。
+*/
+
 int ffio_fdopen(AVIOContext **s, URLContext *h)
 {
     AVIOInternal *internal = NULL;
@@ -1066,11 +1093,25 @@ int ffio_rewind_with_probe_data(AVIOContext *s, unsigned char **bufp, int buf_si
 }
 
 //打开输出文件。
+/*
+有一个和avio_open2()“长得很像”的函数avio_open()，应该是avio_open2()的早期版本。
+avio_open()比avio_open2()少了最后2个参数。
+而它前面几个参数的含义和avio_open2()是一样的。
+avio_open()内部调用了avio_open2()，
+并且把avio_open2()的后2个参数设置成了NULL，因此它的功能实际上和avio_open2()是一样的。avio_open()源代码如下所示。
+*/
 int avio_open(AVIOContext **s, const char *filename, int flags)
 {
     return avio_open2(s, filename, flags, NULL, NULL);
 }
 
+/*
+ffurl_open_whitelist()用于初始化URLContext,使用对应的URLProtocol 打开文件
+ffio_fdopen()用于根据URLContext初始化AVIOContext。
+
+URLContext中包含的URLProtocol完成了具体的协议读写等工作
+AVIOContext则是在URLContext的读写函数外面加上了一层“包装”（通过retry_transfer_wrapper()函数）。
+*/
 int ffio_open_whitelist(AVIOContext **s, const char *filename, int flags,
                          const AVIOInterruptCB *int_cb, AVDictionary **options,
                          const char *whitelist, const char *blacklist
@@ -1089,7 +1130,17 @@ int ffio_open_whitelist(AVIOContext **s, const char *filename, int flags,
     }
     return 0;
 }
-
+/*
+avio_open2()函数参数的含义如下：
+s：函数调用成功之后创建的AVIOContext结构体。
+url：输入输出协议的地址（文件也是一种“广义”的协议，对于文件来说就是文件的路径）。
+flags：打开地址的方式。可以选择只读，只写，或者读写。取值如下。
+	AVIO_FLAG_READ：只读。
+	AVIO_FLAG_WRITE：只写。
+	AVIO_FLAG_READ_WRITE：读写。
+int_cb：目前还没有用过。
+options：目前还没有用过。
+*/
 int avio_open2(AVIOContext **s, const char *filename, int flags,
                const AVIOInterruptCB *int_cb, AVDictionary **options)
 {

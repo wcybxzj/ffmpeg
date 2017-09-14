@@ -74,6 +74,24 @@ void av_max_alloc(size_t max){
     max_alloc_size = max;
 }
 
+
+/*
+Èç¹û²»¿¼ÂÇÉÏÊö´úÂëÖÐµÄÒ»´ó¶Ñºê¶¨Òå£¨¼´ÀàËÆCONFIG_MEMALIGN_HACKÕâÀàµÄºê¶¼²ÉÓÃÄ¬ÈÏÖµ0£©£
+¬av_malloc()µÄ´úÂë¿ÉÒÔ¼ò»¯³ÉÈçÏÂÐÎÊ½¡£
+void *av_malloc(size_t size)  
+{  
+    void *ptr = NULL;  
+    if (size > (max_alloc_size - 32))  
+        return NULL;  
+    ptr = malloc(size);  
+    if(!ptr && !size) {  
+        size = 1;  
+        ptr= av_malloc(1);  
+    }  
+    return ptr;  
+}  
+¿ÉÒÔ¿´³ö£¬´ËÊ±µÄav_malloc()¾ÍÊÇ¼òµ¥µÄ·â×°ÁËÏµÍ³º¯Êýmalloc()£¬²¢×öÁËÒ»Ð©´íÎó¼ì²é¹¤×÷¡£
+*/
 void *av_malloc(size_t size)
 {
     void *ptr = NULL;
@@ -83,9 +101,13 @@ void *av_malloc(size_t size)
         return NULL;
 
 #if HAVE_POSIX_MEMALIGN
-    if (size) //OS X on SDK 10.6 has a broken posix_memalign implementation
-    if (posix_memalign(&ptr, ALIGN, size))
-        ptr = NULL;
+	////OS X on SDK 10.6 has a broken posix_memalign implementation
+    if (size){
+		//Ç¿ÖÆÄÚ´æ¶ÔÆëµ½ALIGN
+		//posix_memalign ·µ»Ø0ËµÃ÷Õý³£
+	    if (posix_memalign(&ptr, ALIGN, size))
+	        ptr = NULL;
+    }
 #elif HAVE_ALIGNED_MALLOC
     ptr = _aligned_malloc(size, ALIGN);
 #elif HAVE_MEMALIGN

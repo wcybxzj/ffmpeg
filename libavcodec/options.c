@@ -154,6 +154,10 @@ int avcodec_get_context_defaults3(AVCodecContext *s, const AVCodec *codec)
 }
 #endif
 
+/*
+avcodec_alloc_context3()首先调用av_malloc()为AVCodecContext分配存储空间，
+然后调用了一个函数avcodec_get_context_defaults3()用于设置该AVCodecContext的默认值。
+*/
 AVCodecContext *avcodec_alloc_context3(const AVCodec *codec)
 {
     AVCodecContext *avctx= av_malloc(sizeof(AVCodecContext));

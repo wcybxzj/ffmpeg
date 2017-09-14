@@ -944,6 +944,11 @@ codec 字段关联当前音视频媒体使用的编解码器；
 priv_data 字段关联解析各个具体媒体流
 与文件容器有关的独有的属性；还有一些媒体帧索引和时钟信息
 */
+/*
+AVStream
+初始化函数是avformat_new_stream()，
+销毁函数使用销毁avcodec_close() and avformat_free_context()
+*/
 typedef struct AVStream {
     int index;    /**< stream index in AVFormatContext */
     /**
@@ -1443,6 +1448,11 @@ pb 关联广义的输入文件；
 streams 关联音视频流； 
 priv_data 字段关联各个具体文件容器独有的属性上下文，
 和priv_data_size 配对使用
+*/
+/*
+AVFormatContext
+初始化函数是avformat_alloc_context()，
+销毁函数是avformat_free_context()。
 */
 typedef struct AVFormatContext {
     /**

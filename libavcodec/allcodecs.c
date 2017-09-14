@@ -58,7 +58,38 @@
         if (CONFIG_##X##_PARSER)                                        \
             av_register_codec_parser(&ff_##x##_parser);                 \
     }
+/*
+编码器的注册是：
+REGISTER_ENCODER (X,x);
+例如：
+REGISTER_ENCODER (LJPEG, ljpeg);
 
+解码器的注册是：
+REGISTER_DECODER (X,x);
+例如：
+REGISTER_DECODER (H264, h264);
+
+既包含编码器有包含解码器的注册是：
+REGISTER_ENCDEC  (X,x);
+例如：
+REGISTER_ENCDEC  (BMP, bmp);
+
+此外还有几种注册：
+Parser：
+REGISTER_PARSER  (X,x);
+例如：
+REGISTER_PARSER  (H264, h264);
+
+BSF（bitstream filters，比特流滤镜，有一个常用：h264_mp4toannexb）：
+REGISTER_BSF     (X,x);
+例如：
+REGISTER_BSF     (H264_MP4TOANNEXB, h264_mp4toannexb);
+
+HWACCEL（hardware accelerators，硬件加速器）：
+REGISTER_HWACCEL (X,x);
+例如：
+REGISTER_HWACCEL (H264_DXVA2, h264_dxva2);
+*/
 static void register_all(void)
 {
     /* hardware accelerators */

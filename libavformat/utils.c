@@ -4257,6 +4257,9 @@ int ff_stream_encode_params_copy(AVStream *dst, const AVStream *src)
     return 0;
 }
 
+//与释放AVFormatContext类似，释放AVStream的时候，
+//也是调用了av_freep()，av_dict_free()这些函数释放有关的字段。
+//如果使用了parser的话，会调用av_parser_close()关闭该parser。
 static void free_stream(AVStream **pst)
 {
     AVStream *st = *pst;
@@ -4305,6 +4308,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     av_freep(pst);
 }
 
+//释放AVStream
 void ff_free_stream(AVFormatContext *s, AVStream *st)
 {
     av_assert0(s->nb_streams>0);
@@ -4323,6 +4327,10 @@ void ff_free_stream(AVFormatContext *s, AVStream *st)
 // 使用 avformat_alloc_context()分配的结构,采用该函数进行释放,
 // 除释放AVFormatContext结构本身内存之外,AVFormatContext中指针所指向的内存也会一并释放
 // 有些版本中函数名猜测可能为: av_free_format_context();
+/*
+avformat_free_context()调用了各式各样的销毁函数：
+av_opt_free()，av_freep()，av_dict_free()
+*/
 void avformat_free_context(AVFormatContext *s)
 {
     int i;
@@ -4393,7 +4401,9 @@ void avformat_close_input(AVFormatContext **ps)
 // 引入 #include "libavformat/avformat.h"
 // 再打开源文件时用户一般不需要直接调用该方法
 
-//创建输出码流的AVStream。
+//avformat_new_stream()首先调用av_mallocz()为AVStream分配内存。
+//接着给新分配的AVStream的各个字段赋上默认值。
+//然后调用了另一个函数avcodec_alloc_context3()初始化AVStream中的AVCodecContext。
 AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
 {
     AVStream *st;
@@ -4405,6 +4415,7 @@ AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
             av_log(s, AV_LOG_ERROR, "Number of streams exceeds max_streams parameter (%d), see the documentation if you wish to increase it\n", s->max_streams);
         return NULL;
     }
+	//设置stream数组的大小
     streams = av_realloc_array(s->streams, s->nb_streams + 1, sizeof(*streams));
     if (!streams)
         return NULL;

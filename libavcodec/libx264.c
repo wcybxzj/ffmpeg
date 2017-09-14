@@ -387,7 +387,7 @@ static av_cold int X264_close(AVCodecContext *avctx)
 
     av_freep(&avctx->extradata);
     av_freep(&x4->sei);
-
+    //关闭编码器  
     if (x4->enc) {
         x264_encoder_close(x4->enc);
         x4->enc = NULL;
@@ -448,6 +448,15 @@ static int convert_pix_fmt(enum AVPixelFormat pix_fmt)
         av_log(avctx, AV_LOG_ERROR, "Error parsing option '%s' with value '%s'.\n", name, x4->var);\
         return AVERROR(EINVAL);\
     }
+/*
+X264_init()的代码以后研究X264的时候再进行细节的分析，在这里简单记录一下它做的两项工作：
+（1）设置X264Context的参数。X264Context主要完成了libx264和FFmpeg对接的功能。
+	 可以看出代码主要在设置一个params结构体变量，该变量的类型即是x264中存储参数的结构体x264_param_t。
+（2）调用libx264的API进行编码器的初始化工作。
+	 调用x264_param_default()设置默认参数，
+	 调用x264_param_apply_profile()设置profile，
+	 调用x264_encoder_open()打开编码器等等。
+*/
 
 static av_cold int X264_init(AVCodecContext *avctx)
 {
@@ -852,6 +861,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return 0;
 }
 
+/*
+先简单介绍一下AVCodec中的pix_fmts数组。
+AVCodec中的pix_fmts数组存储了该种编码器支持的像素格式，并且规定以AV_PIX_FMT_NONE（AV_PIX_FMT_NONE取值为-1）为结尾。
+例如，libx264的pix_fmts数组的定义位于libavcodec\libx264.c，如下所示。
+从pix_fmts_8bit的定义可以看出libx264主要支持的是以YUV为主的像素格式。
+*/
 static const enum AVPixelFormat pix_fmts_8bit[] = {
     AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_YUVJ420P,

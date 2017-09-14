@@ -33,6 +33,7 @@
             av_register_output_format(&ff_##x##_muxer);                 \
     }
 
+//例如 if(CONFIG_AAC_DEMUXER) av_register_input_format(&ff_aac_demuxer);   
 #define REGISTER_DEMUXER(X, x)                                          \
     {                                                                   \
         extern AVInputFormat ff_##x##_demuxer;                          \
@@ -42,10 +43,28 @@
 
 #define REGISTER_MUXDEMUX(X, x) REGISTER_MUXER(X, x); REGISTER_DEMUXER(X, x)
 
+/*
+可见解复用器注册都是用
+REGISTER_DEMUXER  (X,x)
+例如：
+REGISTER_DEMUXER  (AAC, aac)
+
+可见复用器注册都是用
+REGISTER_MUXER    (X,x))
+例如：
+REGISTER_MUXER    (ADTS, adts)
+
+既有解复用器又有复用器的话，可以用
+REGISTER_MUXDEMUX (X,x));
+例如：
+REGISTER_MUXDEMUX (AC3, ac3);
+*/
 static void register_all(void)
 {
-    avcodec_register_all();
-
+	//注册所有的codec  
+	avcodec_register_all();
+	
+    //注册所有的MUXER（复用器和解复用器）  
     /* (de)muxers */
     REGISTER_MUXER   (A64,              a64);
     REGISTER_DEMUXER (AA,               aa);
@@ -388,6 +407,8 @@ static void register_all(void)
 // 实现在:\ffmpeg\libavformat\allformats.c
 // 其中会调用avcodec_register_all()注册多种音视频格式的编解码器,并注册各种文件的编解复用器
 // 当然，你也可以不调用该函数，而通过选择调用特定的方法来提供支持
+
+//ffmpeg注册复用器，编码器等的函数av_register_all()。该函数在所有基于ffmpeg的应用程序中几乎都是第一个被调用的。只有调用了该函数，才能使用复用器，编码器等。
 void av_register_all(void)
 {
     AVOnce control = AV_ONCE_INIT;

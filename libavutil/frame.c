@@ -147,6 +147,13 @@ static void wipe_side_data(AVFrame *frame)
     av_freep(&frame->side_data);
 }
 
+//首先调用av_mallocz()为AVFrame结构体分配内存。
+//而后调用了一个函数get_frame_defaults()用于设置一些默认参数
+
+//从av_frame_alloc()的代码我们可以看出，该函数并没有为AVFrame的像素数据分配空间。
+//因此AVFrame中的像素数据的空间需要自行分配空间，
+//例如使用avpicture_fill()，av_image_fill_arrays()等函数。
+
 AVFrame *av_frame_alloc(void)
 {
     AVFrame *frame = av_mallocz(sizeof(*frame));
@@ -495,6 +502,8 @@ AVFrame *av_frame_clone(const AVFrame *src)
     return ret;
 }
 
+//它的作用是释放AVFrame中参考的缓存（还没完全弄懂），并且重置AVFrame中的字段。
+//调用这个函数的目的应该是为了确保AVFrame可以被正常释放
 void av_frame_unref(AVFrame *frame)
 {
     int i;

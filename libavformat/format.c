@@ -58,6 +58,7 @@ AVOutputFormat *av_oformat_next(const AVOutputFormat *f)
         return first_oformat;
 }
 
+//遍历链表并把当前的Input Format加到链表的尾部。
 void av_register_input_format(AVInputFormat *format)
 {
     AVInputFormat **p = last_iformat;

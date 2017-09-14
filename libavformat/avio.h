@@ -209,6 +209,11 @@ opaque关联字段用于关联URLContext 结构，间接关联并扩展URLProtocol结构
 // int (*write_packet)(void *opaque, uint8_t *buf,int buf_size): 写文件回调方法
 // int64_t (*seek)(void *opaque, int64_t offset,int whence): seek文件回调方法
 
+/*
+AVIOContext的
+初始化函数是avio_alloc_context()，
+销毁的时候使用av_free()释放掉其中的缓存即可。
+*/
 typedef struct AVIOContext {
     /**
      * A class for private options.
