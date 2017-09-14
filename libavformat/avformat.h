@@ -455,6 +455,12 @@ typedef struct AVFrac {
 
 struct AVCodecTag;
 
+
+/*
+其中filename是文件路径， buf存储用于推测AVInputFormat的媒体数据，最后还有个mime_type保存媒体的类型。
+其中buf可以为空，但是其后面无论如何都需要填充AVPROBE_PADDING_SIZE个0（AVPROBE_PADDING_SIZE取值为32，即32个0）。
+*/
+
 /**
  * This structure contains the data a format has to probe a file.
  */

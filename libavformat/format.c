@@ -82,6 +82,11 @@ void av_register_output_format(AVOutputFormat *format)
     if (!format->next)
         last_oformat = &format->next;
 }
+/*
+av_match_ext()用于比较文件的后缀。
+该函数首先通过反向查找的方式找到输入文件名中的“.”，就可以通过获取“.”后面的字符串来得到该文件的后缀。
+然后调用av_match_name()，采用和比较格式名称的方法比较两个后缀。
+*/
 
 int av_match_ext(const char *filename, const char *extensions)
 {
@@ -175,6 +180,33 @@ AVInputFormat *av_find_input_format(const char *short_name)
     return NULL;
 }
 
+
+/*
+从函数声明中可以看出，av_probe_input_format3()和av_probe_input_format2()的区别是函数的第3个参数不同：
+av_probe_input_format2()是一个分数的门限值，而av_probe_input_format3()是一个探测后的最匹配的格式的分数值。
+
+av_probe_input_format3()根据输入数据查找合适的AVInputFormat。输入的数据位于AVProbeData中
+
+
+该函数最主要的部分是一个循环。
+该循环调用av_iformat_next()遍历FFmpeg中所有的AVInputFormat，
+并根据以下规则确定AVInputFormat和输入媒体数据的匹配分数（score，反应匹配程度）：
+（1）如果AVInputFormat中包含read_probe()，
+	就调用read_probe()函数获取匹配分数（这一方法如果结果匹配的话，一般会获得AVPROBE_SCORE_MAX的分值，即100分）。
+	如果不包含该函数，就使用av_match_ext()函数比较输入媒体的扩展名和AVInputFormat的扩展名是否匹配，
+	如果匹配的话，设定匹配分数为AVPROBE_SCORE_EXTENSION（AVPROBE_SCORE_EXTENSION取值为50，即50分）。
+（2）使用av_match_name()比较输入媒体的mime_type和AVInputFormat的mime_type，
+	如果匹配的话，设定匹配分数为AVPROBE_SCORE_MIME（AVPROBE_SCORE_MIME取值为75，即75分）。
+（3）如果该AVInputFormat的匹配分数大于此前的最大匹配分数，则记录当前的匹配分数为最大匹配分数，
+	并且记录当前的AVInputFormat为最佳匹配的AVInputFormat。
+
+
+AVInputFormat->read_probe()
+AVInputFormat中包含read_probe()是用于获得匹配函数的函数指针，不同的封装格式包含不同的实现函数。
+例如，FLV封装格式的AVInputFormat模块定义（位于libavformat\flvdec.c） ff_flv_demuxer
+
+*/
+
 AVInputFormat *av_probe_input_format3(AVProbeData *pd, int is_opened,
                                       int *score_ret)
 {
@@ -251,6 +283,26 @@ AVInputFormat *av_probe_input_format3(AVProbeData *pd, int is_opened,
     return fmt;
 }
 
+/*
+该函数用于根据输入数据查找合适的AVInputFormat。参数含义如下所示：
+pd：
+存储输入数据信息的AVProbeData结构体。
+
+is_opened：
+文件是否打开。
+
+score_max：
+判决AVInputFormat的门限值。
+只有某格式判决分数大于该门限值的时候，函数才会返回该封装格式，否则返回NULL。
+该函数中涉及到一个结构体AVProbeData，用于存储输入文件的一些信息，
+*/
+
+/*
+从函数中可以看出，av_probe_input_format2()调用了av_probe_input_format3()，
+并且增加了一个判断，当av_probe_input_format3()返回的分数大于score_max的时候，
+才会返回AVInputFormat，否则返回NULL。
+*/
+
 AVInputFormat *av_probe_input_format2(AVProbeData *pd, int is_opened, int *score_max)
 {
     int score_ret;
@@ -267,7 +319,36 @@ AVInputFormat *av_probe_input_format(AVProbeData *pd, int is_opened)
     int score = 0;
     return av_probe_input_format2(pd, is_opened, &score);
 }
+/*
+av_probe_input_buffer2()参数的含义如下所示：
+pb：用于读取数据的AVIOContext。
+fmt：输出推测出来的AVInputFormat。
+filename：输入媒体的路径。
+logctx：日志（没有研究过）。
+offset：开始推测AVInputFormat的偏移量。
+max_probe_size：用于推测格式的媒体数据的最大值。
+			   返回推测后的得到的AVInputFormat的匹配分数。
 
+
+av_probe_input_buffer2()首先需要确定用于推测格式的媒体数据的最大值max_probe_size。
+max_probe_size默认为PROBE_BUF_MAX（PROBE_BUF_MAX取值为1 << 20，即1048576Byte，大约1MB）。
+在确定了max_probe_size之后，函数就会进入到一个循环中，
+调用avio_read()读取数据并且使用av_probe_input_format2()（该函数前文已经记录过）推测文件格式。
+肯定有人会奇怪这里为什么要使用一个循环，而不是只运行一次？
+其实这个循环是一个逐渐增加输入媒体数据量的过程。
+av_probe_input_buffer2()并不是一次性读取max_probe_size字节的媒体数据，
+我个人感觉可能是因为这样做不是很经济，因为推测大部分媒体格式根本用不到1MB这么多的媒体数据。
+因此函数中使用一个probe_size存储需要读取的字节数，并且随着循环次数的增加逐渐增加这个值。
+函数首先从PROBE_BUF_MIN（取值为2048）个字节开始读取，
+如果通过这些数据已经可以推测出AVInputFormat，
+那么就可以直接退出循环了（参考for循环的判断条件“!*fmt”）；
+如果没有推测出来，就增加probe_size的量为过去的2倍（参考for循环的表达式“probe_size << 1”），
+继续推测AVInputFormat；如果一直读取到max_probe_size字节的数据依然没能确定AVInputFormat，
+则会退出循环并且返回错误信息。
+
+
+			   
+*/
 int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
                           const char *filename, void *logctx,
                           unsigned int offset, unsigned int max_probe_size)
@@ -277,8 +358,9 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
     int ret = 0, probe_size, buf_offset = 0;
     int score = 0;
     int ret2;
-
-    if (!max_probe_size)
+	
+    //计算最多探测数据的字节数    
+	if (!max_probe_size)
         max_probe_size = PROBE_BUF_MAX;
     else if (max_probe_size < PROBE_BUF_MIN) {
         av_log(logctx, AV_LOG_ERROR,
@@ -307,7 +389,8 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
         av_freep(&mime_type);
     }
 #endif
-
+	
+    //循环直到探测完指定的数据    
     for (probe_size = PROBE_BUF_MIN; probe_size <= max_probe_size && !*fmt;
          probe_size = FFMIN(probe_size << 1,
                             FFMAX(max_probe_size, probe_size + 1))) {
@@ -316,6 +399,8 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
         /* Read probe data. */
         if ((ret = av_reallocp(&buf, probe_size + AVPROBE_PADDING_SIZE)) < 0)
             goto fail;
+		
+        //利用pb读数据到缓冲的剩余空间中    
         if ((ret = avio_read(pb, buf + buf_offset,
                              probe_size - buf_offset)) < 0) {
             /* Fail if error was not end of file, otherwise, lower score. */
@@ -333,6 +418,7 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
 
         memset(pd.buf + pd.buf_size, 0, AVPROBE_PADDING_SIZE);
 
+        //从一个打开的文件只探测媒体格式    
         /* Guess file format. */
         *fmt = av_probe_input_format2(&pd, 1, &score);
         if (*fmt) {
@@ -351,6 +437,7 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
             fclose(f);
 #endif
         }
+		//不成功，继续   
     }
 
     if (!*fmt)
@@ -358,6 +445,7 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
 
 fail:
     /* Rewind. Reuse probe buffer to avoid seeking. */
+    //把探测时读入的数据保存到pb中，为的是真正读时直接利用之．    
     ret2 = ffio_rewind_with_probe_data(pb, &buf, buf_offset);
     if (ret >= 0)
         ret = ret2;

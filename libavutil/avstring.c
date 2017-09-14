@@ -339,6 +339,31 @@ int av_escape(char **dst, const char *src, const char *special_chars,
         return dstbuf.len;
     }
 }
+/*
+av_match_name()用于比较两个格式的名称。
+简单地说就是比较字符串。
+注意该函数的字符串是不区分大小写的：字符都转换为小写进行比较。
+匹配返回1，不匹配返回0
+
+上述函数还有一点需要注意，其中使用了一个while()循环，用于搜索“,”。
+这是因为FFmpeg中有些格式是对应多种格式名称的，例如MKV格式的解复用器（Demuxer）的定义如下。
+AVInputFormat ff_matroska_demuxer = {  
+    .name           = "matroska,webm",  
+    .long_name      = NULL_IF_CONFIG_SMALL("Matroska / WebM"),  
+    .extensions     = "mkv,mk3d,mka,mks",  
+    .priv_data_size = sizeof(MatroskaDemuxContext),  
+    .read_probe     = matroska_probe,  
+    .read_header    = matroska_read_header,  
+    .read_packet    = matroska_read_packet,  
+    .read_close     = matroska_read_close,  
+    .read_seek      = matroska_read_seek,  
+    .mime_type      = "audio/webm,audio/x-matroska,video/webm,video/x-matroska"  
+};  
+
+从代码可以看出，ff_matroska_demuxer中的name字段对应“matroska,webm”，
+mime_type字段对应“audio/webm,audio/x-matroska,video/webm,video/x-matroska”。
+av_match_name()函数对于这样的字符串，会把它按照“,”截断成一个个的名称，然后一一进行比较。
+*/
 
 int av_match_name(const char *name, const char *names)
 {

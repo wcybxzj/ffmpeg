@@ -390,6 +390,39 @@ int av_demuxer_open(AVFormatContext *ic) {
     return 0;
 }
 
+//打开输入媒体并填充其AVInputFormat结构    
+//主要工作就是打开输入的视频数据并且探测视频的格式。
+
+/*
+这个函数在短短的几行代码中包含了好几个return，因此逻辑还是有点复杂的，我们可以梳理一下：
+在函数的开头的score变量是一个判决AVInputFormat的分数的门限值，
+如果最后得到的AVInputFormat的分数低于该门限值，就认为没有找到合适的AVInputFormat。
+
+FFmpeg内部判断封装格式的原理实际上是:
+对每种AVInputFormat给出一个分数，满分是100分，
+越有可能正确的AVInputFormat给出的分数就越高。最后选择分数最高的AVInputFormat作为推测结果。
+score的值是一个宏定义AVPROBE_SCORE_RETRY，我们可以看一下它的定义：
+#define AVPROBE_SCORE_RETRY (AVPROBE_SCORE_MAX/4)  
+其中AVPROBE_SCORE_MAX是score的最大值，取值是100：
+#define AVPROBE_SCORE_MAX       100 ///< maximum score  
+由此我们可以得出score取值是25，即如果推测后得到的最佳AVInputFormat的分值低于25，
+就认为没有找到合适的AVInputFormat。
+
+
+整个函数的逻辑大体如下：
+（1）当使用了自定义的AVIOContext的时候（AVFormatContext中的AVIOContext不为空，即s->pb!=NULL）
+     ，如果指定了AVInputFormat就直接返回，如果没有指定就调用av_probe_input_buffer2()推测AVInputFormat。
+     这一情况出现的不算很多，但是当我们从内存中读取数据的时候（需要初始化自定义的AVIOContext），就会执行这一步骤。
+（2）在更一般的情况下，如果已经指定了AVInputFormat，就直接返回；
+	 如果没有指定AVInputFormat，就调用av_probe_input_format(NULL,…)根据文件路径判断文件格式。
+	 这里特意把av_probe_input_format()的第1个参数写成“NULL”，是为了强调这个时候实际上并没有给函数提供输入数据，
+	 此时仅仅通过文件路径推测AVInputFormat。
+（3）如果发现通过文件路径判断不出来文件格式，
+	那么就需要打开文件探测文件格式了，这个时候会首先调用avio_open2()打开文件，
+	然后调用av_probe_input_buffer2()推测AVInputFormat。
+
+*/
+
 /* Open input file and probe the format if necessary. */
 static int init_input(AVFormatContext *s, const char *filename,
                       AVDictionary **options)
@@ -397,27 +430,38 @@ static int init_input(AVFormatContext *s, const char *filename,
     int ret;
     AVProbeData pd = { filename, NULL, 0 };
     int score = AVPROBE_SCORE_RETRY;
-
+	
+    //当调用者已指定了pb（数据取得的方式）－－一般不会这样．    
     if (s->pb) {
         s->flags |= AVFMT_FLAG_CUSTOM_IO;
-        if (!s->iformat)
+		//如果已指定了pb但没指定iformat，以pb读取媒体数据进行探测，取得．取得iformat.	 
+        if (!s->iformat){
             return av_probe_input_buffer2(s->pb, &s->iformat, filename,
                                          s, 0, s->format_probesize);
-        else if (s->iformat->flags & AVFMT_NOFILE)
+        }
+        else if (s->iformat->flags & AVFMT_NOFILE){
+			//如果已指定pb也指定了iformat，但是又指定了不需要文件（也包括URL指定的地址），这就矛盾了，    
+            //此时应是不需要pb的，因为不需操作文件，提示一下吧，也不算错．
             av_log(s, AV_LOG_WARNING, "Custom AVIOContext makes no sense and "
-                                      "will be ignored with AVFMT_NOFILE format.\n");
+        }                              "will be ignored with AVFMT_NOFILE format.\n");
         return 0;
     }
-
+	
+    //一般会执行到这里,用户会指定iformat
+    //如果已指定了iformat并且不需要文件，也就不需要pb了，可以直接返回    
+    //如果没指定iformat，但是可以从文件名中猜出iformat，也成功
     if ((s->iformat && s->iformat->flags & AVFMT_NOFILE) ||
         (!s->iformat && (s->iformat = av_probe_input_format2(&pd, 0, &score))))
         return score;
-
+	
+    //如果从文件名中也猜不出媒体格式，则只能打开这个文件进行探测了，先打开文件    
     if ((ret = s->io_open(s, &s->pb, filename, AVIO_FLAG_READ | s->avio_flags, options)) < 0)
         return ret;
 
     if (s->iformat)
         return 0;
+	
+    //再探测之    
     return av_probe_input_buffer2(s->pb, &s->iformat, filename,
                                  s, 0, s->format_probesize);
 }
@@ -507,6 +551,62 @@ FF_ENABLE_DEPRECATION_WARNINGS
 }
 
 //打开输入文件，初始化输入视频码流的AVFormatContext。
+/*
+FFMPEG打开媒体的的过程开始于avformat_open_input，因此该函数的重要性不可忽视。
+在该函数中，FFMPEG完成了：
+输入输出结构体AVIOContext的初始化；
+输入数据的协议（例如RTMP，或者file）的识别（通过一套评分机制）:1判断文件名的后缀 2读取文件头的数据进行比对；
+使用获得最高分的文件协议对应的URLProtocol，通过函数指针的方式，与FFMPEG连接（非专业用词）；
+剩下的就是调用该URLProtocol的函数进行open,read等操作了
+*/
+
+/*
+ps：函数调用成功之后处理过的AVFormatContext结构体。
+file：打开的视音频流的URL。
+fmt：强制指定AVFormatContext中AVInputFormat的。这个参数一般情况下可以设置为NULL，这样FFmpeg可以自动检测AVInputFormat。
+dictionay：附加的一些选项，一般情况下可以设置为NULL。
+	函数执行成功的话，其返回值大于等于0。
+
+//参数ps包含一切媒体相关的上下文结构，有它就有了一切，本函数如果打开媒体成功，    
+//会返回一个AVFormatContext的实例．    
+
+//参数filename是媒体文件名或URL．    
+
+//参数fmt是要打开的媒体格式的操作结构，因为是读，所以是inputFormat．此处可以    
+//传入一个调用者定义的inputFormat，对应命令行中的 -f xxx段，如果指定了它，    
+//在打开文件中就不会探测文件的实际格式了，以它为准了．    
+
+//参数options是对某种格式的一些操作，是为了在命令行中可以对不同的格式传入    
+//特殊的操作参数而建的， 为了了解流程，完全可以无视它．  
+*/
+
+/*
+avformat_open_input()
+一部分是容错代码:
+比如说如果发现传入的AVFormatContext指针没有初始化过，
+就调用avformat_alloc_context()初始化该结构体；
+还有一部分:
+针对一些格式做的特殊处理，比如id3v2信息的处理等等。
+
+这里只选择它关键的两个函数进行分析：
+init_input()：绝大部分初始化工作都是在这里做的。
+s->iformat->read_header()：读取多媒体数据文件头，根据视音频流创建相应的AVStream。
+*/
+
+
+/*
+AVInputFormat-> read_header()
+在调用完init_input()完成基本的初始化并且推测得到相应的AVInputFormat之后，
+avformat_open_input()会调用AVInputFormat的read_header()方法读取媒体文件的文件头并且完成相关的初始化工作。
+read_header()是一个位于AVInputFormat结构体中的一个函数指针，对于不同的封装格式，
+会调用不同的read_header()的实现函数。
+举个例子，当输入视频的封装格式为FLV的时候，会调用FLV的AVInputFormat中的read_header()。
+FLV的AVInputFormat定义位于libavformat\flvdec.c文件中 ff_flv_demuxer
+
+经过上面的步骤AVInputFormat的read_header()完成了视音频流对应的AVStream的创建
+至此，avformat_open_input()中的主要代码分析完毕。
+*/
+
 int avformat_open_input(AVFormatContext **ps, const char *filename,
                         AVInputFormat *fmt, AVDictionary **options)
 {
@@ -514,27 +614,38 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     int i, ret = 0;
     AVDictionary *tmp = NULL;
     ID3v2ExtraMeta *id3v2_extra_meta = NULL;
-
+	
+    //创建上下文结构    
     if (!s && !(s = avformat_alloc_context()))
         return AVERROR(ENOMEM);
     if (!s->av_class) {
         av_log(NULL, AV_LOG_ERROR, "Input context has not been properly allocated by avformat_alloc_context() and is not NULL either\n");
         return AVERROR(EINVAL);
     }
+	
+	//如果用户指定了输入格式，直接使用它
     if (fmt)
         s->iformat = fmt;
 
+	//忽略 
     if (options)
         av_dict_copy(&tmp, *options, 0);
 
     if (s->pb) // must be before any goto fail
         s->flags |= AVFMT_FLAG_CUSTOM_IO;
+	
 
     if ((ret = av_opt_set_dict(s, &tmp)) < 0)
         goto fail;
-
+	
+    //打开输入媒体（如果需要的话），初始化所有与媒体读写有关的结构们，比如    
+    //AVIOContext，AVInputFormat等等  
+    //执行完此函数后，s->pb和s->iformat都已经指向了有效实例．pb是用于读写数据的，它    
+    //把媒体数据当做流来读写，不管是什么媒体格式，而iformat把pb读出来的流按某种媒体格    
+    //式进行分析，也就是说pb在底层，iformat在上层．    
     if ((ret = init_input(s, filename, &tmp)) < 0)
         goto fail;
+	
     s->probe_score = ret;
 
     if (!s->protocol_whitelist && s->pb && s->pb->protocol_whitelist) {
@@ -560,7 +671,9 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     }
 
     avio_skip(s->pb, s->skip_initial_bytes);
-
+    
+    //很多静态图像文件格式，都被当作一个格式处理，比如要打开.jpeg文件，需要的格式    
+    //名为image2．此处还不是很了解具体细节，作不得准哦．
     /* Check filename in case an image number is expected. */
     if (s->iformat->flags & AVFMT_NEEDNUMBER) {
         if (!av_filename_number_test(filename)) {
@@ -570,8 +683,11 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     }
 
     s->duration = s->start_time = AV_NOPTS_VALUE;
+    //上下文中保存下文件名    
     av_strlcpy(s->filename, filename ? filename : "", sizeof(s->filename));
 
+    //为当前格式分配私有数据，主要用于某格式的读写操作时所用的私有结构．    
+    //此结构的大小在定义AVInputFormat时已指定了． 
     /* Allocate private data. */
     if (s->iformat->priv_data_size > 0) {
         if (!(s->priv_data = av_mallocz(s->iformat->priv_data_size))) {
@@ -587,14 +703,17 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     }
 
     /* e.g. AVFMT_NOFILE formats will not have a AVIOContext */
-    if (s->pb)
+	//从mp3文件中读ID3数据并保存之．  
+	if (s->pb)
         ff_id3v2_read_dict(s->pb, &s->internal->id3v2_meta, ID3v2_DEFAULT_MAGIC, &id3v2_extra_meta);
 
-
-    if (!(s->flags&AVFMT_FLAG_PRIV_OPT) && s->iformat->read_header)
+	//读一下媒体的头部，在read_header()中主要是做某种格式的初始化工作，比如填充自己的	 
+	//私有结构，根据流的数量分配流结构并初始化，把文件指针指向数据区开始处等． 
+	if (!(s->flags&AVFMT_FLAG_PRIV_OPT) && s->iformat->read_header)
         if ((ret = s->iformat->read_header(s)) < 0)
             goto fail;
-
+		
+	//保存数据区开始的位置	  
     if (!s->metadata) {
         s->metadata = s->internal->id3v2_meta;
         s->internal->id3v2_meta = NULL;

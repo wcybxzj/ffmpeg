@@ -1092,7 +1092,7 @@ int ffio_rewind_with_probe_data(AVIOContext *s, unsigned char **bufp, int buf_si
     return 0;
 }
 
-//打开输出文件。
+//打开一个地址指向的媒体    
 /*
 有一个和avio_open2()“长得很像”的函数avio_open()，应该是avio_open2()的早期版本。
 avio_open()比avio_open2()少了最后2个参数。
@@ -1117,12 +1117,21 @@ int ffio_open_whitelist(AVIOContext **s, const char *filename, int flags,
                          const char *whitelist, const char *blacklist
                         )
 {
+    //URLContext代表一个URL地址指向的媒体文件，本地路径也算一种．它封装了    
+    //操作一个媒体文件的相关数据，最重要的是prot变量，是URLProtocol型的．    
+    //prot代表一个特定的协义和协议操作函数们，URLContext包含不同的prot，    
+    //就可以通过URLContext使用不同的协议读写媒体数据，比如tcp,http，本地    
+    //文件用file协议． 
     URLContext *h;
     int err;
-
+	
+	//创建并初始化URLContext，其prot通过文件名确定．然后打开这个媒体文件 
     err = ffurl_open_whitelist(&h, filename, flags, int_cb, options, whitelist, blacklist, NULL);
     if (err < 0)
         return err;
+	
+	//其实文件已经在上边真正打开了．这里只是填充AVIOContext．使它记录下    
+    //URLContext，以及填充读写数据的函数指针．  
     err = ffio_fdopen(s, h);
     if (err < 0) {
         ffurl_close(h);

@@ -72,6 +72,25 @@ typedef struct FLVContext {
     AVRational framerate;
 } FLVContext;
 
+/*
+从probe()函数我们可以看出，该函数做了如下工作：
+（1）获得第6至第9字节的数据（对应Headersize字段）并且做大小端转换，然后存入offset变量。
+	 之所以要进行大小端转换是因为FLV是以“大端”方式存储数据，
+	 而操作系统是以“小端”方式存储数据，这一转换主要通过AV_RB32()函数实现。
+	 AV_RB32()是一个宏定义，其对应的函数是av_bswap32()。
+（2）检查开头3个字符（Signature）是否为“FLV”。
+（3）第4个字节（Version）小于5。
+（4）第6个字节（Headersize的第1个字节？）为0。
+（5）offset取值大于8。
+
+此外代码中还包含了有关live方式的FLV格式的判断，在这里我们不加探讨。
+对于我们打开FLV文件来说，live和is_live两个变量取值都为0。
+也就是说满足上述5个条件的话，就可以认为输入媒体数据是FLV封装格式了。
+满足上述条件，probe()函数返回AVPROBE_SCORE_MAX（AVPROBE_SCORE_MAX取值为100，即100分），否则返回0（0分）。
+
+*/
+
+
 static int probe(AVProbeData *p, int live)
 {
     const uint8_t *d = p->buf;
@@ -132,6 +151,7 @@ static void add_keyframes_index(AVFormatContext *s)
     }
 }
 
+//create_stream()调用了API函数avformat_new_stream()创建相应的视频流和音频流。
 static AVStream *create_stream(AVFormatContext *s, int codec_type)
 {
     FLVContext *flv   = s->priv_data;
@@ -703,7 +723,10 @@ static int flv_read_metabody(AVFormatContext *s, int64_t next_pos)
 
     return 0;
 }
-
+/*
+可以看出，函数读取了FLV的文件头并且判断其中是否包含视频流和音频流。
+如果包含视频流或者音频流，就会调用create_stream()函数。
+*/
 static int flv_read_header(AVFormatContext *s)
 {
     int flags;
