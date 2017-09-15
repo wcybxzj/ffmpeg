@@ -1012,7 +1012,9 @@ static int h264_decode_frame(AVCodecContext *avctx, void *data,
                                             &h->ps, &h->is_avc, &h->nal_length_size,
                                             avctx->err_recognition, avctx);
     }
-
+	
+    //H.264解码
+    //从h264_decode_frame()的定义可以看出，它调用了decode_nal_units()完成了具体的H.264解码工作。
     buf_index = decode_nal_units(h, buf, buf_size);
     if (buf_index < 0)
         return AVERROR_INVALIDDATA;

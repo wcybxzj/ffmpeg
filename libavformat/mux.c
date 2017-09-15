@@ -146,6 +146,36 @@ enum AVChromaLocation ff_choose_chroma_location(AVFormatContext *s, AVStream *st
 }
 
 //初始化输出视频码流的AVFormatContext。
+
+/*
+在基于FFmpeg的视音频编码器程序中，该函数通常是第一个调用的函数（除了组件注册函数av_register_all()）。
+avformat_alloc_output_context2()函数可以初始化一个用于输出的AVFormatContext结构体。
+代码中的英文注释写的已经比较详细了，在这里拿中文简单叙述一下。
+
+ctx：
+函数调用成功之后创建的AVFormatContext结构体。
+oformat：
+指定AVFormatContext中的AVOutputFormat，用于确定输出格式。如果指定为NULL，
+可以设定后两个参数（format_name或者filename）由FFmpeg猜测输出格式。
+PS：使用该参数需要自己手动获取AVOutputFormat，相对于使用后两个参数来说要麻烦一些。
+format_name：
+指定输出格式的名称。根据格式名称，FFmpeg会推测输出格式。输出格式可以是“flv”，“mkv”等等。
+filename：
+指定输出文件的名称。根据文件名称，FFmpeg会推测输出格式。文件名称可以是“xx.flv”，“yy.mkv”等等。
+函数执行成功的话，其返回值大于等于0。
+
+
+从代码中可以看出，avformat_alloc_output_context2()的流程如要包含以下2步：
+1)	调用avformat_alloc_context()初始化一个默认的AVFormatContext。
+2)	如果指定了输入的AVOutputFormat，则直接将输入的AVOutputFormat赋值给AVOutputFormat的oformat。
+	如果没有指定输入的AVOutputFormat，就需要根据文件格式名称或者文件名推测输出的AVOutputFormat。
+	无论是通过文件格式名称还是文件名推测输出格式，都会调用一个函数av_guess_format()。
+
+经过以上几步之后，av_guess_format()最终可以得到最合适的AVOutputFormat并且返回给avformat_alloc_output_context2()。
+avformat_alloc_output_context2()接下来将获得的AVOutputFormat赋值给刚刚新建的AVFormatContext，即可完成初始化工作。
+
+*/
+
 int avformat_alloc_output_context2(AVFormatContext **avctx, AVOutputFormat *oformat,
                                    const char *format, const char *filename)
 {
@@ -233,6 +263,15 @@ static int validate_codec_tag(AVFormatContext *s, AVStream *st)
 }
 
 
+/*
+init_muxer()代码很长，但是它所做的工作比较简单，可以概括成两个字：检查。函数的流程可以概括成以下几步：
+（1）将传入的AVDictionary形式的选项设置到AVFormatContext
+（2）遍历AVFormatContext中的每个AVStream，并作如下检查：
+	a)AVStream的time_base是否正确设置。
+   	  如果发现AVStream的time_base没有设置，则会调用avpriv_set_pts_info()进行设置。
+	b)对于音频，检查采样率设置是否正确；对于视频，检查宽、高、宽高比。
+	c)其他一些检查，不再详述。
+*/
 static int init_muxer(AVFormatContext *s, AVDictionary **options)
 {
     int ret = 0, i;
@@ -469,6 +508,17 @@ static int init_pts(AVFormatContext *s)
     return 0;
 }
 
+/*
+AVOutputFormat->write_header()
+avformat_write_header()中最关键的地方就是调用了AVOutputFormat的write_header()。
+write_header()是AVOutputFormat中的一个函数指针，指向写文件头的函数。
+不同的AVOutputFormat有不同的write_header()的实现方法。
+在这里我们举例子看一下FLV封装格式对应的AVOutputFormat，它的定义位于libavformat\flvenc.c
+AVOutputFormat ff_flv_muxer = { 
+.write_header	= flv_write_header,  
+}
+
+*/
 static int write_header_internal(AVFormatContext *s)
 {
     if (!(s->oformat->flags & AVFMT_NOFILE) && s->pb)
@@ -518,6 +568,22 @@ int avformat_init_output(AVFormatContext *s, AVDictionary **options)
 }
 
 //写文件头（对于某些没有文件头的封装格式，不需要此函数。比如说MPEG2TS）。
+/*
+文件用到的3个函数：avformat_write_header()，av_write_frame()以及av_write_trailer()。
+其中av_write_frame()用于写视频数据，avformat_write_header()用于写视频文件头，而av_write_trailer()用于写视频文件尾。
+尽管这3个函数功能是配套的，但是它们的前缀却不一样
+
+
+简单解释一下它的参数的含义：
+s：用于输出的AVFormatContext。
+options：额外的选项，目前没有深入研究过，一般为NULL。
+函数正常执行后返回值等于0。
+
+avformat_write_header()完成了以下工作：
+（1）调用init_muxer()初始化复用器
+（2）调用AVOutputFormat的write_header()
+*/
+
 int avformat_write_header(AVFormatContext *s, AVDictionary **options)
 {
     int ret = 0;

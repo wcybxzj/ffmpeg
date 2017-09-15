@@ -729,6 +729,7 @@ static int compat_decode(AVCodecContext *avctx, AVFrame *frame,
     }
 
     if (!avci->compat_decode_partial_size) {
+		//解码发送packet
         ret = avcodec_send_packet(avctx, pkt);
         if (ret == AVERROR_EOF)
             ret = 0;
@@ -742,6 +743,7 @@ static int compat_decode(AVCodecContext *avctx, AVFrame *frame,
     }
 
     while (ret >= 0) {
+		//解码获取frame
         ret = avcodec_receive_frame(avctx, frame);
         if (ret < 0) {
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
@@ -795,6 +797,11 @@ finish:
 //   vPacket.data += vLen;
 // 如果 vPacket.size==0,则继续读下一流包,否则继续调度该方法进行解码,直到vPacket.size==0
 // 返回 got_picture_ptr > 0 时,表示解码到了AVFrame *picture,其后可以对picture进程处理
+/*
+ffmpeg中的avcodec_decode_video2()的作用是解码一帧视频数据。
+输入一个压缩编码的结构体AVPacket，输出一个解码后的结构体AVFrame。
+*/
+
 int attribute_align_arg avcodec_decode_video2(AVCodecContext *avctx, AVFrame *picture,
                                               int *got_picture_ptr,
                                               const AVPacket *avpkt)

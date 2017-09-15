@@ -649,6 +649,17 @@ end:
     return ret;
 }
 
+/*
+从源代码可以看出，flv_write_header()完成了FLV文件头的写入工作。该函数的工作可以大体分为以下两部分：
+（1）给FLVContext设置参数
+（2）写文件头，以及相关的Tag
+写文件头的代码很短，如下所示。
+avio_write(pb, "FLV", 3);  
+avio_w8(pb, 1);  
+avio_w8(pb, FLV_HEADER_FLAG_HASAUDIO * !!flv->audio_enc +  
+            FLV_HEADER_FLAG_HASVIDEO * !!flv->video_enc);  
+avio_wb32(pb, 9);  
+*/
 
 static int flv_write_header(AVFormatContext *s)
 {
@@ -663,6 +674,7 @@ static int flv_write_header(AVFormatContext *s)
         case AVMEDIA_TYPE_VIDEO:
             if (s->streams[i]->avg_frame_rate.den &&
                 s->streams[i]->avg_frame_rate.num) {
+                //设置帧率，从AVStream拷贝过来  
                 flv->framerate = av_q2d(s->streams[i]->avg_frame_rate);
             }
             if (flv->video_par) {
@@ -670,6 +682,7 @@ static int flv_write_header(AVFormatContext *s)
                        "at most one video stream is supported in flv\n");
                 return AVERROR(EINVAL);
             }
+            
             flv->video_par = par;
             if (!ff_codec_get_tag(flv_video_codec_ids, par->codec_id))
                 return unsupported_codec(s, "Video", par->codec_id);
@@ -731,12 +744,27 @@ static int flv_write_header(AVFormatContext *s)
     }
 
     flv->delay = AV_NOPTS_VALUE;
-
+	//开始写入  
+    //Signature  
     avio_write(pb, "FLV", 3);
+    //Version  
     avio_w8(pb, 1);
+	/*
+	“！！”意思是把非0转换成1  
+	两个!是为了把非0值转换成1,而0值还是0。
+	因为C语言中，所以非0值都表示真。所以!非0值 = 0，而!0 = 1。
+	所以!!非0值 = 1，而!!0 = 0。
+	比如：i=5 !i=0  !!i=1
+	*/
+    //Flags
     avio_w8(pb, FLV_HEADER_FLAG_HASAUDIO * !!flv->audio_par +
                 FLV_HEADER_FLAG_HASVIDEO * !!flv->video_par);
+	
+    //Header size  
     avio_wb32(pb, 9);
+	
+    //Header结束  
+    //Previous Tag Size  
     avio_wb32(pb, 0);
 
     for (i = 0; i < s->nb_streams; i++)

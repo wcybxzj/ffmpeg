@@ -161,7 +161,8 @@ int ff_copy_whiteblacklists(AVFormatContext *dst, const AVFormatContext *src)
     }
     return 0;
 }
-
+//如果指定的AVStream已经包含了解码器，则函数什么也不做直接返回。
+//否则调用avcodec_find_decoder()获取解码器。
 static const AVCodec *find_decoder(AVFormatContext *s, const AVStream *st, enum AVCodecID codec_id)
 {
 #if FF_API_LAVF_AVCTX
@@ -600,7 +601,8 @@ AVInputFormat-> read_header()
 avformat_open_input()会调用AVInputFormat的read_header()方法读取媒体文件的文件头并且完成相关的初始化工作。
 read_header()是一个位于AVInputFormat结构体中的一个函数指针，对于不同的封装格式，
 会调用不同的read_header()的实现函数。
-举个例子，当输入视频的封装格式为FLV的时候，会调用FLV的AVInputFormat中的read_header()。
+举个例子:
+当输入视频的封装格式为FLV的时候，会调用FLV的AVInputFormat中的read_header()。
 FLV的AVInputFormat定义位于libavformat\flvdec.c文件中 ff_flv_demuxer
 
 经过上面的步骤AVInputFormat的read_header()完成了视音频流对应的AVStream的创建
@@ -906,6 +908,12 @@ static int update_wrap_reference(AVFormatContext *s, AVStream *st, int stream_in
     }
     return 1;
 }
+/*
+ff_read_packet()中最关键的地方就是调用了AVInputFormat的read_packet()方法。
+AVInputFormat的read_packet()是一个函数指针，指向当前的AVInputFormat的读取数据的函数。
+在这里我们以FLV封装格式对应的AVInputFormat为例，看看read_packet()的实现函数是什么样子的。
+FLV封装格式对应的AVInputFormat的定义位于libavformat\flvdec.c ff_flv_demuxer 
+*/
 
 int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
@@ -1508,6 +1516,11 @@ static void free_packet_buffer(AVPacketList **pkt_buf, AVPacketList **pkt_buf_en
  *
  * @param pkt Packet to parse, NULL when flushing the parser at end of stream.
  */
+ /*
+ parse_packet()给需要AVCodecParser的媒体流提供解析AVPacket的功能
+ 调用了相应AVCodecParser的av_parser_parse2()函数，解析出来AVPacket。
+ 此后根据解析的信息还进行了一系列的赋值工作，不再详细叙述。
+*/
 static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
 {
     AVPacket out_pkt = { 0 }, flush_pkt = { 0 };
@@ -1531,6 +1544,7 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
         int64_t next_dts = pkt->dts;
 
         av_init_packet(&out_pkt);
+		//解析
         len = av_parser_parse2(st->parser, st->internal->avctx,
                                &out_pkt.data, &out_pkt.size, data, size,
                                pkt->pts, pkt->dts, pkt->pos);
@@ -1543,6 +1557,7 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
 
         got_output = !!out_pkt.size;
 
+		//继续
         if (!out_pkt.size)
             continue;
 
@@ -1564,7 +1579,8 @@ static int parse_packet(AVFormatContext *s, AVPacket *pkt, int stream_index)
                                      AV_ROUND_DOWN);
             }
         }
-
+		
+        //设置属性值
         out_pkt.stream_index = st->index;
         out_pkt.pts          = st->parser->pts;
         out_pkt.dts          = st->parser->dts;
@@ -1620,7 +1636,15 @@ static int64_t ts_to_samples(AVStream *st, int64_t ts)
 {
     return av_rescale(ts, st->time_base.num * st->codecpar->sample_rate, st->time_base.den);
 }
+/*
+read_frame_internal()的功能是读取一帧压缩码流数据。
+FFmpeg的API函数av_read_frame()内部调用的就是read_frame_internal()
+可以认为read_frame_internal()和av_read_frame()的功能基本上是等同的。
 
+read_frame_internal()代码比较长，这里只简单看一下它前面的部分。它前面部分有2步是十分关键的：
+（1）调用了ff_read_packet()从相应的AVInputFormat读取数据。
+（2）如果媒体频流需要使用AVCodecParser，则调用parse_packet()解析相应的AVPacket。
+*/
 static int read_frame_internal(AVFormatContext *s, AVPacket *pkt)
 {
     int ret = 0, i, got_packet = 0;
@@ -1829,6 +1853,32 @@ FF_ENABLE_DEPRECATION_WARNINGS
 // 从输入源文件容器中读取一个AVPacket数据包
 // 该函数读出的包并不每次都是有效的,对于读出的包我们都应该进行相应的解码(视频解码/音频解码),
 // 在返回值>=0时,循环调用该函数进行读取,循环调用之前请调用av_free_packet函数清理AVPacket
+/*
+ffmpeg中的av_read_frame()的作用是读取码流中的音频若干帧或者视频一帧。
+例如，解码视频的时候，每解码一个视频帧，需要先调用 av_read_frame()获得一帧视频的压缩数据，
+然后才能对该数据进行解码（例如H.264中一帧压缩数据通常对应一个NAL）。
+
+上代码之前，先参考了其他人对av_read_frame()的解释，在此做一个参考：
+通过av_read_packet(***)，读取一个包，需要说明的是此函数必须是包含整数帧的，不存在半帧的情况，
+以ts流为例，是读取一个完整的PES包（一个完整pes包包含若干视频或音频es包），读取完毕后，
+通过av_parser_parse2(***)分析出视频一帧（或音频若干帧），返回，下次进入循环的时候，
+如果上次的数据没有完全取完，则st = s->cur_st;不会是NULL，即再此进入av_parser_parse2(***)流程，
+而不是下面的av_read_packet（**）流程，这样就保证了，
+如果读取一次包含了N帧视频数据（以视频为例），则调用av_read_frame（***）N次都不会去读数据，
+而是返回第一次读取的数据，直到全部解析完毕。
+
+两个参数：
+s：输入的AVFormatContext
+pkt：输出的AVPacket
+
+
+ av_read_frame - 新版本的ffmpeg用的是av_read_frame，而老版本的是av_read_packet
+ 。区别是av_read_packet读出的是包，它可能是半帧或多帧，不保证帧的完整性。av_read_frame对
+ av_read_packet进行了封装，使读出的数据总是完整的帧
+
+
+*/
+
 int av_read_frame(AVFormatContext *s, AVPacket *pkt)
 {
     const int genpts = s->flags & AVFMT_FLAG_GENPTS;
@@ -1837,6 +1887,10 @@ int av_read_frame(AVFormatContext *s, AVPacket *pkt)
     AVStream *st;
 
     if (!genpts) {
+		/*
+		一般情况下会调用read_frame_internal(s, pkt)
+    	 	直接返回
+    	 	*/
         ret = s->internal->packet_buffer
               ? read_from_packet_buffer(&s->internal->packet_buffer,
                                         &s->internal->packet_buffer_end, pkt)
@@ -2781,6 +2835,16 @@ static void fill_all_stream_timings(AVFormatContext *ic)
         }
     }
 }
+/*
+该函数做了两步工作：
+（1）如果AVFormatContext中没有bit_rate信息，就把所有AVStream的bit_rate加起来作为AVFormatContext的bit_rate信息。
+（2）使用文件大小filesize除以bitrate得到时长信息。具体的方法是：
+AVStream->duration=(filesize*8*bit_rate)/time_base
+PS：
+1）filesize乘以8是因为需要把Byte转换为Bit
+2）具体的实现函数是那个av_rescale()函数。x=av_rescale(a,b,c)的含义是x=a*b/c。
+3）之所以要除以time_base，是因为AVStream中的duration的单位是time_base，注意这和AVFormatContext中的duration的单位（单位是AV_TIME_BASE，固定取值为1000000）是不一样的。
+*/
 
 static void estimate_timings_from_bit_rate(AVFormatContext *ic)
 {
@@ -2965,6 +3029,19 @@ static void estimate_timings_from_pts(AVFormatContext *ic, int64_t old_offset)
     }
 }
 
+/*
+用于估算AVFormatContext以及AVStream的时长duration
+（1）通过pts（显示时间戳）。
+该方法调用estimate_timings_from_pts()。
+它的基本思想就是读取视音频流中的结束位置AVPacket的PTS和起始位置AVPacket的PTS，两者相减得到时长信息。
+（2）通过已知流的时长。
+该方法调用fill_all_stream_timings()。
+它的代码没有细看，但从函数的注释的意思来说，应该是当有些视音频流有时长信息的时候，直接赋值给其他视音频流。
+（3）通过bitrate（码率）。
+该方法调用estimate_timings_from_bit_rate()。
+它的基本思想就是获得整个文件大小，以及整个文件的bitrate，两者相除之后得到时长信息。
+*/
+
 static void estimate_timings(AVFormatContext *ic, int64_t old_offset)
 {
     int64_t file_size;
@@ -3012,6 +3089,7 @@ static void estimate_timings(AVFormatContext *ic, int64_t old_offset)
     }
 }
 
+//has_codec_parameters()用于检查AVStream中的成员变量是否都已经设置完毕
 static int has_codec_parameters(AVStream *st, const char **errmsg_ptr)
 {
     AVCodecContext *avctx = st->internal->avctx;
@@ -3058,6 +3136,19 @@ static int has_codec_parameters(AVStream *st, const char **errmsg_ptr)
 
     return 1;
 }
+
+/*
+首先判断视音频流的解码器是否已经打开，如果没有打开的话，先打开相应的解码器。
+
+接下来根据视音频流类型的不同，调用不同的解码函数进行解码：
+视频流调用avcodec_decode_video2()，
+音频流调用avcodec_decode_audio4()，
+字幕流调用avcodec_decode_subtitle2()。
+
+解码的循环会一直持续下去直到满足了while()的所有条件。
+while()语句的条件中有一个has_codec_parameters()函数，用于判断AVStream中的成员变量是否都已经设置完毕。
+该函数在avformat_find_stream_info()中的多个地方被使用过。
+*/
 
 /* returns 1 or 0 if or if not decoded data was returned, or a negative error */
 static int try_decode_frame(AVFormatContext *s, AVStream *st, AVPacket *avpkt,
@@ -3619,6 +3710,24 @@ static int extract_extradata(AVStream *st, AVPacket *pkt)
 // 也就是把媒体文件中的音视频流等信息读出来,保存在容器中,以便解码时使用
 // 返回>=0时成功,否则失败
 
+/*
+简单解释一下它的参数的含义：
+ic：输入的AVFormatContext。
+options：额外的选项，目前没有深入研究过。
+函数正常执行后返回值大于等于0。
+
+
+avformat_find_stream_info主要用于给每个媒体流（音频/视频）的AVStream结构体赋值。
+它其实已经实现了解码器的查找，解码器的打开，视音频帧的读取，视音频帧的解码等工作。
+换句话说，该函数实际上已经“走通”的解码的整个流程。
+下面看一下除了成员变量赋值之外，该函数的几个关键流程。
+1.查找解码器：find_probe_decoder()
+2.打开解码器：avcodec_open2()
+3.读取完整的一帧压缩编码的数据：read_frame_internal()
+注：av_read_frame()内部实际上就是调用的read_frame_internal()。
+4.解码一些压缩编码数据：try_decode_frame()
+下面选择上述流程中几个关键函数的代码简单看一下。
+*/
 int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
 {
     int i, count = 0, ret = 0, j;
@@ -4488,6 +4597,20 @@ void avformat_free_context(AVFormatContext *s)
 }
 
 //关闭输入文件。
+/*
+该函数用于关闭一个AVFormatContext，一般情况下是和avformat_open_input()成对使用的。
+
+从源代码中可以看出，avformat_close_input()主要做了以下几步工作：
+（1）调用AVInputFormat的read_close()方法关闭输入流
+（2）调用avformat_free_context()释放AVFormatContext
+（3）调用avio_close()关闭并且释放AVIOContext
+
+AVInputFormat-> read_close()
+AVInputFormat的read_close()是一个函数指针，指向关闭输入流的函数。
+不同的AVInputFormat包含有不同的read_close()方法。
+
+FLV格式对应的AVInputFormat  ff_flv_demuxer ->flv_read_close
+*/
 void avformat_close_input(AVFormatContext **ps)
 {
     AVFormatContext *s;

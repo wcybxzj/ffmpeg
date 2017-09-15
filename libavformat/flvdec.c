@@ -947,6 +947,10 @@ static int resync(AVFormatContext *s)
     return AVERROR_EOF;
 }
 
+/*
+flv_read_packet()的代码比较长，但是逻辑比较简单。
+它的主要功能就是根据FLV文件格式的规范，逐层解析Tag以及TagData，获取Tag以及TagData中的信息。
+*/
 static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     FLVContext *flv = s->priv_data;
@@ -964,10 +968,15 @@ static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
 retry:
     /* pkt size is repeated at end. skip it */
         pos  = avio_tell(s->pb);
+	    //解析Tag Header==========
+        //Tag类型
         type = (avio_r8(s->pb) & 0x1F);
+		//Datasize数据大小
         orig_size =
         size = avio_rb24(s->pb);
         flv->sum_flv_tag_size += size + 11;
+		
+        //Timstamp时间戳
         dts  = avio_rb24(s->pb);
         dts |= (unsigned)avio_r8(s->pb) << 24;
         av_log(s, AV_LOG_TRACE, "type:%d, size:%d, last:%d, dts:%"PRId64" pos:%"PRId64"\n", type, size, last, dts, avio_tell(s->pb));
@@ -1001,11 +1010,11 @@ retry:
 
         if (type == FLV_TAG_TYPE_AUDIO) {
             stream_type = FLV_STREAM_TYPE_AUDIO;
-            flags    = avio_r8(s->pb);
+            flags    = avio_r8(s->pb); //Tag Data的第一个字节
             size--;
         } else if (type == FLV_TAG_TYPE_VIDEO) {
             stream_type = FLV_STREAM_TYPE_VIDEO;
-            flags    = avio_r8(s->pb);
+            flags    = avio_r8(s->pb);//Tag Data的第一个字节
             size--;
             if ((flags & FLV_VIDEO_FRAMETYPE_MASK) == FLV_FRAME_VIDEO_INFO_CMD)
                 goto skip;
@@ -1162,14 +1171,17 @@ retry_duration:
     } else if (stream_type == FLV_STREAM_TYPE_DATA) {
         st->codecpar->codec_id = AV_CODEC_ID_TEXT;
     }
-
+	
+    //几种特殊的格式
     if (st->codecpar->codec_id == AV_CODEC_ID_AAC ||
         st->codecpar->codec_id == AV_CODEC_ID_H264 ||
         st->codecpar->codec_id == AV_CODEC_ID_MPEG4) {
+    	//对应AACPacketType或者AVCPacketType
         int type = avio_r8(s->pb);
         size--;
         if (st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_MPEG4) {
             // sign extension
+        	//对应CompositionTime
             int32_t cts = (avio_rb24(s->pb) + 0xff800000) ^ 0xff800000;
             pts = dts + cts;
             if (cts < 0) { // dts might be wrong
@@ -1183,6 +1195,7 @@ retry_duration:
                 dts = pts = AV_NOPTS_VALUE;
             }
         }
+        //如果编码器是AAC或者H.264
         if (type == 0 && (!st->codecpar->extradata || st->codecpar->codec_id == AV_CODEC_ID_AAC ||
             st->codecpar->codec_id == AV_CODEC_ID_H264)) {
             AVDictionaryEntry *t;
@@ -1252,7 +1265,8 @@ retry_duration:
         flv->last_channels    = channels;
         ff_add_param_change(pkt, channels, 0, sample_rate, 0, 0);
     }
-
+	
+    //标记上Keyframe
     if (    stream_type == FLV_STREAM_TYPE_AUDIO ||
             ((flags & FLV_VIDEO_FRAMETYPE_MASK) == FLV_FRAME_KEY) ||
             stream_type == FLV_STREAM_TYPE_DATA)

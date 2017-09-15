@@ -496,6 +496,11 @@ int64_t ffurl_seek(URLContext *h, int64_t pos, int whence)
     return ret;
 }
 
+/*
+从ffurl_closep()的定义可以看出，它主要做了两步工作：
+（1）调用URLProtocol的url_close() 如果是文件协议实际调用close()
+（2）调用av_freep()释放URLContext结构体
+*/
 int ffurl_closep(URLContext **hh)
 {
     URLContext *h= *hh;

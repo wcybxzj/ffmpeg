@@ -49,7 +49,7 @@ AVInputFormat *av_iformat_next(const AVInputFormat *f)
     else
         return first_iformat;
 }
-
+//av_oformat_next()参数不为NULL的时候用于获得下一个AVOutputFormat，否则获得第一个AVOutputFormat。
 AVOutputFormat *av_oformat_next(const AVOutputFormat *f)
 {
     if (f)
@@ -105,6 +105,24 @@ int av_match_ext(const char *filename, const char *extensions)
 // 引入#include "libavformat/avformat.h"
 // 可以通过 const char *short_name 获取,如"mpeg"
 // 也可以通过 const char *filename 获取,如"E:\a.mp4"
+/*
+short_name：格式的名称。
+filename：文件的名称。
+mime_type：MIME类型。
+返回最匹配的AVOutputFormat。如果没有很匹配的AVOutputFormat，则返回NULL。
+
+av_guess_format()中使用一个整型变量score记录每种输出格式的匹配程度。
+函数中包含了一个while()循环，该循环利用函数av_oformat_next()遍历FFmpeg中所有的AVOutputFormat，
+并逐一计算每个输出格式的score。具体的计算过程分成如下几步：
+1)	如果封装格式名称匹配，score增加100。匹配中使用了函数av_match_name()。
+2)	如果mime类型匹配，score增加10。匹配直接使用字符串比较函数strcmp()。
+3)	如果文件名称的后缀匹配，score增加5。匹配中使用了函数av_match_ext()。
+while()循环结束后，得到得分最高的格式，就是最匹配的格式。
+下面看一下一个AVOutputFormat的实例，就可以理解“封装格式名称”，“mine类型”，“文件名称后缀”这些概念了。
+下面是flv格式的视音频复用器（Muxer）对应的AVOutputFormat格式的变量ff_flv_muxer。
+
+
+*/
 AVOutputFormat *av_guess_format(const char *short_name, const char *filename,
                                 const char *mime_type)
 {

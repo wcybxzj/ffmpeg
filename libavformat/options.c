@@ -117,7 +117,13 @@ static void io_close_default(AVFormatContext *s, AVIOContext *pb)
     avio_close(pb);
 }
 
-//该函数用于设置AVFormatContext的字段的默认值
+/*
+该函数用于设置AVFormatContext的字段的默认值
+从代码中可以看出，avformat_alloc_context()首先调用memset()将AVFormatContext的内存置零；
+然后指定它的AVClass（指定了AVClass之后，该结构体就支持和AVOption相关的功能）；
+最后调用av_opt_set_defaults()给AVFormatContext的成员变量设置默认值
+（av_opt_set_defaults()就是和AVOption有关的一个函数，专门用于给指定的结构体设定默认值，此处暂不分析）。
+*/
 static void avformat_get_context_defaults(AVFormatContext *s)
 {
     memset(s, 0, sizeof(AVFormatContext));
@@ -138,6 +144,11 @@ static void avformat_get_context_defaults(AVFormatContext *s)
 // 也是就说使用 avformat_alloc_context()分配的结构,
 // 需要使用avformat_free_context()来释放
 // 有些版本中函数名可能为: av_alloc_format_context();
+/*
+从代码中可以看出，avformat_alloc_context()首先调用av_malloc()为AVFormatContext分配一块内存。
+然后调用了一个函数avformat_get_context_defaults()用于给AVFormatContext设置默认值。
+avformat_get_context_defaults()的定义如下。
+*/
 AVFormatContext *avformat_alloc_context(void)
 {
     AVFormatContext *ic;

@@ -363,6 +363,14 @@ AVInputFormat ff_matroska_demuxer = {
 从代码可以看出，ff_matroska_demuxer中的name字段对应“matroska,webm”，
 mime_type字段对应“audio/webm,audio/x-matroska,video/webm,video/x-matroska”。
 av_match_name()函数对于这样的字符串，会把它按照“,”截断成一个个的名称，然后一一进行比较。
+
+例如MKV格式的解复用器（Demuxer）的定义如下
+
+ff_matroska_demuxer = {  
+    .name           = "matroska,webm",
+    .mime_type		= "audio/webm,audio/x-matroska,video/webm,video/x-matroska"  
+}
+
 */
 
 int av_match_name(const char *name, const char *names)

@@ -168,7 +168,14 @@ AVIOContext *avio_alloc_context(
                   read_packet, write_packet, seek);
     return s;
 }
-
+/*
+从定义可以看出，writeout()调用了AVIOContext的write_packet()方法。
+AVIOContext的write_packet()实际指向了ffurl_write()函数，
+而ffurl_write()经过retry_transfer_wrapper()函数最终调用了URLProtocol的url_write()函数。
+url_write()是一个函数指针，不同的URLProtocol的url_write()指向不同的函数。
+例如，file（文件）对应的URLProtocol的定义位于libavformat\file.c 
+ff_file_protocol ->file_write() ->write()
+*/
 static void writeout(AVIOContext *s, const uint8_t *data, int len)
 {
     if (!s->error) {
@@ -196,6 +203,12 @@ static void writeout(AVIOContext *s, const uint8_t *data, int len)
     s->pos += len;
 }
 
+/*
+从flush_buffer()定义我们可以看出，该函数将当前缓存指针buf_ptr的位置重新设置到缓存buffer的首部，
+然后根据AVIOContext对应的流是否可写分别做不同的处理。
+如果AVIOContext对应的流是只读的（write_flag取值为0），就将缓存的尾部buf_end设定到缓存首部位置；
+如果AVIOContext对应的流如果是可写的（write_flag取值非0），则会调用writeout()函数输出缓存中剩余的数据。
+*/
 static void flush_buffer(AVIOContext *s)
 {
     if (s->write_flag && s->buf_ptr > s->buffer) {
@@ -1162,6 +1175,13 @@ int ffio_open2_wrapper(struct AVFormatContext *s, AVIOContext **pb, const char *
     return ffio_open_whitelist(pb, url, flags, int_cb, options, s->protocol_whitelist, s->protocol_blacklist);
 }
 
+/*
+从源代码可以看出，avio_close()按照顺序做了以下几个步骤：
+（1）调用avio_flush()强制清除缓存中的数据
+（2）调用av_freep()释放掉AVIOContext种的buffer
+（3）调用av_free()释放掉AVIOContext结构体
+（4）调用ffurl_close()关闭并且释放掉URLContext
+*/
 int avio_close(AVIOContext *s)
 {
     AVIOInternal *internal;
