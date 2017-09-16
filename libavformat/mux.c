@@ -629,7 +629,12 @@ fail:
    immediate failure if used anywhere as a real size. */
 #define UNCODED_FRAME_PACKET_SIZE (INT_MIN / 3 * 2 + (int)sizeof(AVFrame))
 
+/*
 
+从代码中可以看出，compute_muxer_pkt_fields()主要有两方面的功能：
+一方面用于计算AVPacket的duration， dts等信息；
+另一方面用于检查pts、dts这些参数的合理性（例如PTS是否一定大于DTS）。
+*/
 #if FF_API_COMPUTE_PKT_FIELDS2 && FF_API_LAVF_AVCTX
 FF_DISABLE_DEPRECATION_WARNINGS
 //FIXME merge with compute_pkt_fields
@@ -751,6 +756,19 @@ FF_ENABLE_DEPRECATION_WARNINGS
  * Those additional safety checks should be dropped once the correct checks
  * are set in the callers.
  */
+
+/*
+write_packet()函数最关键的地方就是调用了AVOutputFormat中写入数据的方法。
+如果AVPacket中的flag标记中包含AV_PKT_FLAG_UNCODED_FRAME，
+就会调用AVOutputFormat的write_uncoded_frame()函数；
+如果不包含那个标记，就会调用write_packet()函数。
+write_packet()实际上是一个函数指针，指向特定的AVOutputFormat中的实现函数。
+例如，我们看一下FLV对应的AVOutputFormat，位于libavformat\flvenc.c，如下所示。
+
+AVOutputFormat ff_flv_muxer = {
+    .write_packet   = flv_write_packet,
+};
+*/
 static int write_packet(AVFormatContext *s, AVPacket *pkt)
 {
     int ret, did_split;
@@ -862,6 +880,15 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return ret;
 }
 
+/*
+从代码中可以看出，check_packet()的功能比较简单：
+首先检查一下输入的AVPacket是否为空，如果为空，则是直接返回；
+
+然后检查一下AVPacket的stream_index（标记了该AVPacket所属的AVStream）设置是否正常，
+如果为负数或者大于AVStream的个数，则返回错误信息；
+
+最后检查AVPacket所属的AVStream是否属于attachment stream，这个地方没见过，目前还没有研究。
+*/
 static int check_packet(AVFormatContext *s, AVPacket *pkt)
 {
     if (!pkt)
@@ -997,6 +1024,18 @@ FF_ENABLE_DEPRECATION_WARNINGS
     return 1;
 }
 
+/*
+简单解释一下它的参数的含义：
+s：用于输出的AVFormatContext。
+pkt：等待输出的AVPacket。
+函数正常执行后返回值等于0。
+
+从源代码可以看出，av_write_frame()主要完成了以下几步工作：
+（1）调用check_packet()做一些简单的检测
+（2）调用compute_muxer_pkt_fields()设置AVPacket的一些属性值
+（3）调用write_packet()写入数据
+
+*/
 int av_write_frame(AVFormatContext *s, AVPacket *pkt)
 {
     int ret;
@@ -1373,7 +1412,23 @@ fail:
     return ret;
 }
 
-//写文件尾（对于某些没有文件头的封装格式，不需要此函数。比如说MPEG2TS）。
+/*
+写文件尾（对于某些没有文件头的封装格式，不需要此函数。比如说MPEG2TS）。
+它只需要指定一个参数，即用于输出的AVFormatContext。
+函数正常执行后返回值等于0。
+
+从源代码可以看出av_write_trailer()主要完成了以下两步工作：
+（1）循环调用interleave_packet()以及write_packet()，将还未输出的AVPacket输出出来。
+（2）调用AVOutputFormat的write_trailer()，输出文件尾。
+
+AVOutputFormat->write_trailer()
+AVOutputFormat的write_trailer()是一个函数指针，指向特定的AVOutputFormat中的实现函数。
+我们以FLV对应的AVOutputFormat为例，看一下它的定义，如下所示。
+AVOutputFormat ff_flv_muxer = {  
+    .write_trailer  = flv_write_trailer,  
+};  
+
+*/
 int av_write_trailer(AVFormatContext *s)
 {
     int ret, i;
@@ -1385,7 +1440,7 @@ int av_write_trailer(AVFormatContext *s)
             goto fail;
         if (!ret)
             break;
-
+		//写入AVPacket	
         ret = write_packet(s, &pkt);
         if (ret >= 0)
             s->streams[pkt.stream_index]->nb_frames++;
@@ -1405,6 +1460,7 @@ int av_write_trailer(AVFormatContext *s)
     }
 
 fail:
+    //写文件尾  
     if (s->internal->header_written && s->oformat->write_trailer) {
         if (!(s->oformat->flags & AVFMT_NOFILE) && s->pb)
             avio_write_marker(s->pb, AV_NOPTS_VALUE, AVIO_DATA_MARKER_TRAILER);

@@ -230,6 +230,10 @@ static void put_amf_string(AVIOContext *pb, const char *str)
     avio_write(pb, str, len);
 }
 
+/*
+其中，put_avc_eos_tag()函数用于添加包含EOS NALU的Tag（包含结尾的一个PreviousTagSize），如下所示。
+可以看出包含EOS NALU的AVCVIDEOPACKET的AVCPacketType为2。在这种情况下，AVCVIDEOPACKET的CompositionTime字段取0，并且无需包含Data字段。
+*/
 static void put_avc_eos_tag(AVIOContext *pb, unsigned ts)
 {
     avio_w8(pb, FLV_TAG_TYPE_VIDEO);
@@ -790,6 +794,12 @@ static int flv_write_header(AVFormatContext *s)
     flv->datastart_offset = avio_tell(pb);
     return 0;
 }
+/*
+从flv_write_trailer()的源代码可以看出该函数做了以下两步工作：
+（1）如果视频流是H.264，则添加包含EOS（End Of Stream） NALU的Tag。
+（2）更新FLV的时长信息，以及文件大小信息。
+其中，put_avc_eos_tag()函数用于添加包含EOS NALU的Tag（包含结尾的一个PreviousTagSize)。
+*/
 
 static int flv_write_trailer(AVFormatContext *s)
 {
@@ -894,7 +904,13 @@ end:
 
     return 0;
 }
+/*
+从FLV的封装格式结构可以看出，它的文件数据是一个一个的Tag连接起来的，中间间隔包含着Previous Tag Size。
+因此，flv_write_packet()函数的任务就是写入一个Tag和Previous Tag Size。下面简单记录一下Tag Data的格式。
+Tag Data根据Tag的Type不同而不同：可以分为音频Tag Data，视频Tag Data以及Script Tag Data。
 
+我们通过源代码简单梳理一下flv_write_packet()在写入H.264/AAC时候的流程：
+*/
 static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
     AVIOContext *pb      = s->pb;
@@ -953,6 +969,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     switch (par->codec_type) {
     case AVMEDIA_TYPE_VIDEO:
+		//写入Tag Header的Type，如果是视频
         avio_w8(pb, FLV_TAG_TYPE_VIDEO);
 
         flags = ff_codec_get_tag(flv_video_codec_ids, par->codec_id);
@@ -963,7 +980,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         flags = get_audio_flags(s, par);
 
         av_assert0(size);
-
+		//如果是音频
         avio_w8(pb, FLV_TAG_TYPE_AUDIO);
         break;
     case AVMEDIA_TYPE_SUBTITLE:
@@ -1004,11 +1021,14 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
                size + flags_size, 1<<24);
         return AVERROR(EINVAL);
     }
-
+	//Tag Header - Datasize  
     avio_wb24(pb, size + flags_size);
+	
+	//Tag Header - Timestamp  
     avio_wb24(pb, ts & 0xFFFFFF);
     avio_w8(pb, (ts >> 24) & 0x7F); // timestamps are 32 bits _signed_
-    avio_wb24(pb, flv->reserved);
+	//StreamID	
+	avio_wb24(pb, flv->reserved);
 
     if (par->codec_type == AVMEDIA_TYPE_DATA ||
         par->codec_type == AVMEDIA_TYPE_SUBTITLE ) {
@@ -1040,9 +1060,12 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         avio_wb32(pb, data_size + 11);
     } else {
         av_assert1(flags>=0);
+		//写入Tag Data的第一字节（其中flag已经在前面的代码中设置完毕）
         avio_w8(pb,flags);
         if (par->codec_id == AV_CODEC_ID_VP6)
             avio_w8(pb,0);
+		//如果编码格式VP6作相应的处理（不研究）；编码格式为AAC，写入AACAUDIODATA；
+		//编码格式为H.264，写入AVCVIDEOPACKET：
         if (par->codec_id == AV_CODEC_ID_VP6F || par->codec_id == AV_CODEC_ID_VP6A) {
             if (par->extradata_size)
                 avio_w8(pb, par->extradata[0]);
@@ -1052,12 +1075,14 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         } else if (par->codec_id == AV_CODEC_ID_AAC)
             avio_w8(pb, 1); // AAC raw
         else if (par->codec_id == AV_CODEC_ID_H264 || par->codec_id == AV_CODEC_ID_MPEG4) {
-            avio_w8(pb, 1); // AVC NALU
-            avio_wb24(pb, pkt->pts - pkt->dts);
+			//AVCVIDEOPACKET-AVCPacketType	
+			avio_w8(pb, 1); // AVC NALU
+			//AVCVIDEOPACKET-CompositionTime
+			avio_wb24(pb, pkt->pts - pkt->dts);
         }
-
+		//写入数据
         avio_write(pb, data ? data : pkt->data, size);
-
+		//写入previous tag size
         avio_wb32(pb, size + flags_size + 11); // previous tag size
         flv->duration = FFMAX(flv->duration,
                               pkt->pts + flv->delay + pkt->duration);

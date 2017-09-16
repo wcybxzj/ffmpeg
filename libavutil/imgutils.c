@@ -249,6 +249,8 @@ static const AVClass imgutils_class = {
     .parent_log_context_offset = offsetof(ImgUtils, log_ctx),
 };
 
+//av_image_check_size()是一个很简单的函数，用于检查图像宽高是否正常
+//从代码中可以看出，av_image_check_size()主要是要求图像宽高必须为正数，而且取值不能太大。
 int av_image_check_size2(unsigned int w, unsigned int h, int64_t max_pixels, enum AVPixelFormat pix_fmt, int log_offset, void *log_ctx)
 {
     ImgUtils imgutils = {

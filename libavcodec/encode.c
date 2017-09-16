@@ -261,6 +261,25 @@ end:
     return ret;
 }
 
+/*
+该函数用于编码一帧视频数据
+
+该函数每个参数的含义在注释里面已经写的很清楚了，在这里用中文简述一下：
+avctx：编码器的AVCodecContext。
+avpkt：编码输出的AVPacket。
+frame：编码输入的AVFrame。
+got_packet_ptr：成功编码一个AVPacket的时候设置为1。
+函数返回0代表编码成功。
+
+AVCodec->encode2()
+AVCodec的encode2()是一个函数指针，指向特定编码器的编码函数。
+在这里我们以libx264为例，看一下它对应的AVCodec的结构体的定义，如下所示。
+AVCodec ff_libx264_encoder = {  
+.encode2		  = X264_frame,  
+}
+
+
+*/
 int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
                                               AVPacket *avpkt,
                                               const AVFrame *frame,
@@ -290,7 +309,7 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
         avpkt->size = 0;
         return 0;
     }
-
+    //检查输入  
     if (av_image_check_size2(avctx->width, avctx->height, avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx))
         return AVERROR(EINVAL);
 
@@ -300,7 +319,7 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
         av_log(avctx, AV_LOG_WARNING, "AVFrame.width or height is not set\n");
 
     av_assert0(avctx->codec->encode2);
-
+    //编码  
     ret = avctx->codec->encode2(avctx, avpkt, frame, got_packet_ptr);
     av_assert0(ret <= 0);
 
