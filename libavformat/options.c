@@ -32,6 +32,12 @@
 FF_DISABLE_DEPRECATION_WARNINGS
 #include "options_table.h"
 FF_ENABLE_DEPRECATION_WARNINGS
+/*
+从函数的定义可以看出，
+如果AVFormatContext结构体中的AVInputFormat结构体不为空，则返回AVInputFormat的name，
+然后尝试返回AVOutputFormat的name，
+如果AVOutputFormat也为空，则返回“NULL”。
+*/
 
 static const char* format_to_name(void* ptr)
 {
@@ -87,6 +93,14 @@ static AVClassCategory get_category(void *ptr)
     if(s->iformat) return AV_CLASS_CATEGORY_DEMUXER;
     else           return AV_CLASS_CATEGORY_MUXER;
 }
+/*
+option
+option字段则指向一个元素个数很多的静态数组avformat_options。
+该数组单独定义于libavformat\options_table.h中。
+其中包含了AVFormatContext支持的所有的AVOption，如下所示。
+
+avformat_open_input()->avformat_alloc_context()->avformat_get_context_defaults()
+*/
 
 static const AVClass av_format_context_class = {
     .class_name     = "AVFormatContext",

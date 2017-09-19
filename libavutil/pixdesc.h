@@ -78,6 +78,10 @@ typedef struct AVComponentDescriptor {
  *       and all the YUV variants) AVPixFmtDescriptor just stores how values
  *       are stored not what these values represent.
  */
+ 
+ //FFmpeg有一个专门用于描述像素格式的结构体AVPixFmtDescriptor。
+ //通过av_pix_fmt_desc_get()可以获得指定像素格式的AVPixFmtDescriptor结构体。
+ //通过AVPixFmtDescriptor结构体可以获得不同像素格式的一些信息
 typedef struct AVPixFmtDescriptor {
     const char *name;
     uint8_t nb_components;  ///< The number of components each pixel has, (1-4)

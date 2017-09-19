@@ -145,13 +145,37 @@ static const char *months[12] = {
     "september", "october", "november", "december"
 };
 
+/*
+av_parse_video_size()
+av_parse_video_size()是一个FFmpeg的API函数，用于解析出输入的分辨率字符串的宽高信息。
+例如，输入的字符串为“1920x1080”或者“1920*1080”，经过av_parse_video_size()的处理之后，
+可以得到宽度为1920，高度为1080；此外，输入一个“特定分辨率”字符串例如“vga”，
+也可以得到宽度为640，高度为480。该函数不属于AVOption这部分的内容，
+而是整个FFmpeg通用的一个字符串解析函数。
+
+FFmpeg中包含两种设定视频分辨率的方法：
+通过已经定义好的“分辨率简称”，
+或者通过具体的数值。代码中首先遍历“特定分辨率”的数组video_size_abbrs
+
+通过调用strcmp()方法比对输入字符串的值与video_size_abbrs数组中每个VideoSizeAbbr元素的abbr字段的值，
+判断输入的字符串是否指定了这些标准的分辨率。如果指定了的话，则返回该分辨率的宽和高。
+
+如果从上述列表中没有找到相应的“特定分辨率”，则说明输入的字符串应该是一个具体的分辨率的值，
+形如“1920*1020”，“1280x720”这样的字符串。这个时候就需要对这个字符串进行解析，并从中提取出数字信息。
+通过两次调用strtol()方法，从字符串中提取出宽高信息（第一次提取出宽，第二次提取出高）。
+PS1：strtol()用于将字符串转换成整型，遇到非数字则停止。
+PS2：从这种解析方法可以得到一个信息——FFmpeg并不管“宽{X}高”中间的那个{X}是什么字符，也就是说中间那个字符不一定非得是“*”或者“x”。
+后来试了一下，中间那个字符使用其他字母也是可以的。
+
+
+*/
 int av_parse_video_size(int *width_ptr, int *height_ptr, const char *str)
 {
     int i;
     int n = FF_ARRAY_ELEMS(video_size_abbrs);
     const char *p;
     int width = 0, height = 0;
-
+    //先看看有没有“分辨率简称”相同的（例如vga，qcif等）  
     for (i = 0; i < n; i++) {
         if (!strcmp(video_size_abbrs[i].abbr, str)) {
             width  = video_size_abbrs[i].width;
@@ -159,7 +183,9 @@ int av_parse_video_size(int *width_ptr, int *height_ptr, const char *str)
             break;
         }
     }
+    //如果没有使用“分辨率简称”，而是使用具体的数值（例如“1920x1080”），则执行下面的步骤  
     if (i == n) {
+        //strtol()：字符串转换成整型，遇到非数字则停止  
         width = strtol(str, (void*)&p, 10);
         if (*p)
             p++;
@@ -169,6 +195,7 @@ int av_parse_video_size(int *width_ptr, int *height_ptr, const char *str)
         if (*p)
             return AVERROR(EINVAL);
     }
+    //检查一下正确性  
     if (width <= 0 || height <= 0)
         return AVERROR(EINVAL);
     *width_ptr  = width;

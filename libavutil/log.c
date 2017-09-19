@@ -146,6 +146,20 @@ static void check_color_terminal(void)
                !getenv("AV_LOG_FORCE_NOCOLOR");
 #endif
 }
+/*
+colored_fputs()函数用于将输出的文本“上色”并且输出。
+在这里有一点需要注意：Windows和Linux下控制台程序上色的方法是不一样的。
+Windows下是通过SetConsoleTextAttribute()方法给控制台中的文本上色；
+Linux下则是通过添加一些ANSI控制码完成上色。
+
+从colored_fputs()的源代码中可以看出如下流程：
+首先判定根据宏定义系统的类型，如果系统类型是Windows，
+那么就调用SetConsoleTextAttribute()方法设定控制台文本的颜色，
+然后调用fputs()将Log记录输出到stderr（注意不是stdout）；
+如果系统类型是Linux，则通过添加特定字符串的方式设定控制台文本的颜色，然后将Log记录输出到stderr。
+至此FFmpeg的日志输出系统的源代码就分析完毕了。
+
+*/
 
 static void colored_fputs(int level, int tint, const char *str)
 {
@@ -245,6 +259,24 @@ static const char *get_level_str(int level)
     }
 }
 
+/*
+从代码中可以看出，其分别处理了AVBPrint类型数组part的4个元素。
+由此我们也可以看出FFmpeg一条Log可以分成4个组成部分。
+初始化AVBPrint的函数av_bprint_init()。
+向AVBPrint添加一个字符串的函数av_bprintf()。
+向AVBPrint添加一个字符串的函数av_vbprintf ()，注意与av_bprintf()的不同在于其第3个参数不一样。
+
+看完以上几个与AVBPrint相关函数之后，就可以来看一下format_line()的代码了。
+part[0]对应的是目标结构体的父结构体的名称（如果父结构体存在的话）；
+其打印格式形如“[%s @ %p]”，其中前面的“%s”对应父结构体的名称，“%p”对应其所在的地址。
+part[1]对应的是目标结构体的名称；
+其打印格式形如“[%s @ %p]”，其中前面的“%s”对应本结构体的名称，“%p”对应其所在的地址。
+part[2]用于输出Log的级别，
+这个字符串只有在flag中设置AV_LOG_PRINT_LEVEL的时候才能打印。
+part[3]则是打印原本传送进来的文本。
+将format_line()函数处理后得到的4个字符串连接其来，就可以的到一条完整的Log信息。
+下面图显示了flag设置AV_LOG_PRINT_LEVEL后的打印出来的Log的格式。
+*/
 static void format_line(void *avcl, int level, const char *fmt, va_list vl,
                         AVBPrint part[4], int *print_prefix, int type[2])
 {
@@ -286,6 +318,29 @@ void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl,
 {
     av_log_format_line2(ptr, level, fmt, vl, line, line_size, print_prefix);
 }
+/*
+从代码中可以看出，首先声明了一个AVBPrint类型的数组，其中包含了4个元素；
+接着调用format_line()设定格式；
+最后将设置格式后的AVBPrint数组中的4个元素连接起来。
+
+首先声明了一个AVBPrint类型的数组，其中包含了4个元素；
+接着调用format_line()设定格式；
+最后将设置格式后的AVBPrint数组中的4个元素连接起来。
+在这里遇到了一个结构体AVBPrint，它的定义位于libavutil\bprint.h
+typedef struct AVBPrint {  
+    FF_PAD_STRUCTURE(1024,  
+    char *str;         //< string so far  
+    unsigned len;      //< length so far  
+    unsigned size;     //< allocated memory 
+    unsigned size_max; //< maximum allocated memory 
+    char reserved_internal_buffer[1];  
+    )  
+} AVBPrint;  
+AVBPrint的注释代码很长，不再详细叙述。
+在这里只要知道他是用于打印字符串的缓存就可以了。
+它的名称BPrint的意思应该就是“Buffer to Print”。其中的str存储了将要打印的字符串。
+
+*/
 
 int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
                         char *line, int line_size, int *print_prefix)
@@ -298,7 +353,18 @@ int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
     av_bprint_finalize(part+3, NULL);
     return ret;
 }
+/*
+av_log_default_callback()的代码是比较复杂的。
+其实如果我们仅仅是希望把Log信息输出到屏幕上，远不需要那么多代码，只需要简单打印一下就可以了。
+av_log_default_callback()之所以会那么复杂，主要是因为他还包含了很多的功能，
+比如说根据Log级别的不同将输出的文本设置成不同的颜色等等。
 
+下面看一下av_log_default_callback()的源代码大致的流程：
+（1）如果输入参数level大于系统当前的日志级别av_log_level，表明不需要做任何处理，直接返回。
+（2）调用format_line()设定Log的输出格式。
+（3）调用colored_fputs()设定Log的颜色。
+
+*/
 void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
 {
     static int print_prefix = 1;
@@ -363,7 +429,21 @@ end:
 
 static void (*av_log_callback)(void*, int, const char*, va_list) =
     av_log_default_callback;
+/*
+av_log()每个字段的含义如下：
+avcl：指定一个包含AVClass的结构体。
+level：log的级别
+fmt：和printf()一样。
 
+av_log()和printf()的不同主要在于前面多了两个参数。
+第一个参数指定该log所属的结构体，例如AVFormatContext、AVCodecContext等等。
+第二个参数指定log的级别，源代码中定义了如下几个级别。
+（1）va_list变量
+（2）va_start()
+（3）va_arg()
+（4）va_end()
+
+*/
 void av_log(void* avcl, int level, const char *fmt, ...)
 {
     AVClass* avc = avcl ? *(AVClass **) avcl : NULL;
@@ -375,7 +455,11 @@ void av_log(void* avcl, int level, const char *fmt, ...)
     av_vlog(avcl, level, fmt, vl);
     va_end(vl);
 }
-
+/*
+从代码中可以看出，av_log_callback指针默认指向一个函数av_log_default_callback()。
+av_log_default_callback()即FFmpeg默认的Log函数。需要注意的是，这个Log函数是可以自定义的。
+按照指定的参数定义一个自定义的函数后，可以通过FFmpeg的另一个API函数av_log_set_callback()设定为Log函数。
+*/
 void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
 {
     void (*log_callback)(void*, int, const char*, va_list) = av_log_callback;
@@ -383,6 +467,7 @@ void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
         log_callback(avcl, level, fmt, vl);
 }
 
+//主要操作了一个静态全局变量av_log_level。该变量用于存储当前系统Log的级别
 int av_log_get_level(void)
 {
     return av_log_level;

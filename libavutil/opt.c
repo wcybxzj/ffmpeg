@@ -42,6 +42,11 @@
 
 #include <float.h>
 
+/*
+使用它可以循环遍历目标结构体的所有AVOption
+从av_opt_next()的代码可以看出，输入的AVOption类型的last变量为空的时候，
+会返回该AVClass的option数组的第一个元素，否则会返回数组的下一个元素。
+*/
 const AVOption *av_opt_next(const void *obj, const AVOption *last)
 {
     const AVClass *class;
@@ -447,10 +452,31 @@ static int set_string_sample_fmt(void *obj, const AVOption *o, const char *val, 
 }
 
 //av_opt_set 是设置AVOptions的参数
+/*
+通过AVOption设置参数最常用的函数就是av_opt_set()了。
+该函数通过字符串的方式（传入的参数是变量名称的字符串和变量值的字符串）设置一个AVOption的值。
+此外，还包含了它的一系列“兄弟”函数av_opt_set_XXX()，其中“XXX”代表了int，double这些数据类型。
+使用这些函数的时候，可以指定int，double这些类型的变量（而不是字符串）作为输入，设定相应的AVOption的值。
+
+从源代码可以看出，av_opt_set()首先调用av_opt_find2()查找AVOption。
+如果找到了，则根据AVOption的type，
+调用不同的函数（set_string()，set_string_number()，set_string_image_size()等等）
+将输入的字符串转化为相应type的数据并对该AVOption进行赋值。
+如果没有找到，则立即返回“没有找到AVOption”的错误。
+
+现在再回到刚才的av_opt_set()函数。
+该函数有一个void型的变量dst用于确定需要设定的AVOption对应的变量的位置。
+具体的方法就是将输入的AVClass结构体的首地址加上该AVOption的偏移量offset。
+确定了AVOption对应的变量的位置之后，
+就可以根据该AVOption的类型type的不同调用不同的字符串转换函数设置相应的值了。
+我们可以看几个设置值的的简单例子：
+
+*/
 int av_opt_set(void *obj, const char *name, const char *val, int search_flags)
 {
     int ret = 0;
     void *dst, *target_obj;
+    //查找  
     const AVOption *o = av_opt_find2(obj, name, NULL, 0, search_flags, &target_obj);
     if (!o || !target_obj)
         return AVERROR_OPTION_NOT_FOUND;
@@ -464,7 +490,11 @@ int av_opt_set(void *obj, const char *name, const char *val, int search_flags)
     if (o->flags & AV_OPT_FLAG_READONLY)
         return AVERROR(EINVAL);
 
+	//dst指向具体的变量  
+    //注意：offset的作用 
     dst = ((uint8_t *)target_obj) + o->offset;
+	
+    //根据AVOption不同的类型，调用不同的设置函数  
     switch (o->type) {
     case AV_OPT_TYPE_BOOL:
         return set_string_bool(obj, o, val, dst);
@@ -749,9 +779,18 @@ static void format_duration(char *buf, size_t size, int64_t d)
         *(--e) = 0;
 }
 
+/*
+av_opt_get()用于获取一个AVOption变量的值。
+需要注意的是，不论是何种类型的变量，通过av_opt_get()取出来的值都是字符串类型的。
+此外，还包含了它的一系列“兄弟”函数av_opt_get_XXX()
+（其中“XXX”代表了int，double这些数据类型）。
+通过这些“兄弟”函数可以直接取出int，double类型的数值。av_opt_get()的声明如下所示。
+*/
+//obj是类似AVformatContext
 int av_opt_get(void *obj, const char *name, int search_flags, uint8_t **out_val)
 {
     void *dst, *target_obj;
+    //查找  
     const AVOption *o = av_opt_find2(obj, name, NULL, 0, search_flags, &target_obj);
     uint8_t *bin, buf[128];
     int len, i, ret;
@@ -760,6 +799,7 @@ int av_opt_get(void *obj, const char *name, int search_flags, uint8_t **out_val)
     if (!o || !target_obj || (o->offset<=0 && o->type != AV_OPT_TYPE_CONST))
         return AVERROR_OPTION_NOT_FOUND;
 
+	//注意：offset的使用  
     dst = (uint8_t *)target_obj + o->offset;
 
     buf[0] = 0;
@@ -1288,16 +1328,31 @@ int av_opt_show2(void *obj, void *av_log_obj, int req_flags, int rej_flags)
 
     return 0;
 }
-
+//s:是最外层的结构体例如AVFormatConext
 void av_opt_set_defaults(void *s)
 {
     av_opt_set_defaults2(s, 0, 0);
 }
 
+//实际就是对例如AVFormatConext 里的字段进行赋值
+/*
+下面简单解读一下av_opt_set_defaults()中while()循环语句里面的内容。
+有一个void类型的指针dst用于确定当前AVOption代表的变量的位置。
+该指针的位置有结构体的首地址和变量的偏移量offset确定。
+然后根据AVOption代表的变量的类型type，调用不同的函数设定相应的值。
+例如type为AV_OPT_TYPE_INT的话，则会调用write_number()；
+type为AV_OPT_TYPE_STRING的时候，则会调用set_string()；
+type为AV_OPT_TYPE_IMAGE_SIZE的时候，则会调用set_string_image_size()。
+有关这些设置值的函数在前文中已经有所叙述，
+不再重复。需要注意的是，该函数中设置的值都是AVOption中的default_val变量的值。
+*/
+
 void av_opt_set_defaults2(void *s, int mask, int flags)
 {
     const AVOption *opt = NULL;
+    //遍历所有的AVOption  
     while ((opt = av_opt_next(s, opt))) {
+        //注意：offset的使用  
         void *dst = ((uint8_t*)s) + opt->offset;
 
         if ((opt->flags & mask) != flags)
@@ -1305,7 +1360,8 @@ void av_opt_set_defaults2(void *s, int mask, int flags)
 
         if (opt->flags & AV_OPT_FLAG_READONLY)
             continue;
-
+		
+        //读取各种default_val  
         switch (opt->type) {
             case AV_OPT_TYPE_CONST:
                 /* Nothing to be done here */
@@ -1598,6 +1654,21 @@ const AVOption *av_opt_find(void *obj, const char *name, const char *unit,
     return av_opt_find2(obj, name, unit, opt_flags, search_flags, NULL);
 }
 
+//这段代码的前半部分暂时不关注，前半部分的if()语句中的内容只有在search_flags指定为AV_OPT_SEARCH_CHILDREN的时候才会执行。
+//后半部分代码是重点。后半部分代码是一个while()循环，该循环的条件是一个函数av_opt_next()。
+
+/*
+我们发现在while()循环中有一个strcmp()函数，
+正是这个函数比较输入的AVOption的name和AVClass的option数组中每个元素的name，
+当上述两个name相等的时候，就代表查找到了AVOption，接着就可以返回获得的AVOption。
+现在再回到刚才的av_opt_set()函数。
+该函数有一个void型的变量dst用于确定需要设定的AVOption对应的变量的位置。
+具体的方法就是将输入的AVClass结构体的首地址加上该AVOption的偏移量offset。
+确定了AVOption对应的变量的位置之后，
+就可以根据该AVOption的类型type的不同调用不同的字符串转换函数设置相应的值了。
+*/
+//这里obj 类似是 AVFormatCopntext
+//target_obj
 const AVOption *av_opt_find2(void *obj, const char *name, const char *unit,
                              int opt_flags, int search_flags, void **target_obj)
 {
@@ -1607,12 +1678,15 @@ const AVOption *av_opt_find2(void *obj, const char *name, const char *unit,
     if(!obj)
         return NULL;
 
+	//强转
     c= *(AVClass**)obj;
 
     if (!c)
         return NULL;
 
-    if (search_flags & AV_OPT_SEARCH_CHILDREN) {
+	//查找范围包含子节点的时候  
+    //递归调用av_opt_find2()  
+	if (search_flags & AV_OPT_SEARCH_CHILDREN) {
         if (search_flags & AV_OPT_SEARCH_FAKE_OBJ) {
             const AVClass *child = NULL;
             while (child = av_opt_child_class_next(c, child))
@@ -1625,7 +1699,13 @@ const AVOption *av_opt_find2(void *obj, const char *name, const char *unit,
                     return o;
         }
     }
-
+	
+	//遍历
+	/*
+	我们发现在while()循环中有一个strcmp()函数，
+	正是这个函数比较输入的AVOption的name和AVClass的option数组中每个元素的name，
+	当上述两个name相等的时候，就代表查找到了AVOption，接着就可以返回获得的AVOption。
+	*/
     while (o = av_opt_next(obj, o)) {
         if (!strcmp(o->name, name) && (o->flags & opt_flags) == opt_flags &&
             ((!unit && o->type != AV_OPT_TYPE_CONST) ||

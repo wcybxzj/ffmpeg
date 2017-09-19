@@ -54,6 +54,14 @@ const char *swscale_configuration(void);
  */
 const char *swscale_license(void);
 
+/*
+图像拉伸
+FFmpeg支持多种像素拉伸的方式。这些方式的定义位于libswscale\swscale.h中，如下所示。
+其中SWS_BICUBIC性能比较好；
+SWS_FAST_BILINEAR在性能和速度之间有一个比好好的平衡，
+SWS_POINT的效果比较差。
+
+*/
 /* values for the flags, the stuff on the command line is different */
 #define SWS_FAST_BILINEAR     1
 #define SWS_BILINEAR          2

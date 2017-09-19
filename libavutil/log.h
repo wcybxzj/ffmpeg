@@ -64,6 +64,48 @@ struct AVOptionRanges;
  * arbitrary struct of which the first field is a pointer to an
  * AVClass struct (e.g. AVCodecContext, AVFormatContext etc.).
  */
+/*
+ºÎÎªAVClass£¿
+AVClass×îÖ÷ÒªµÄ×÷ÓÃ¾ÍÊÇ¸ø½á¹¹Ìå£¨ÀýÈçAVFormatContextµÈ£©Ôö¼ÓAVOption¹¦ÄÜµÄÖ§³Ö¡£
+»»¾ä»°ËµAVClass¾ÍÊÇAVOptionºÍÄ¿±ê½á¹¹ÌåÖ®¼äµÄ¡°ÇÅÁº¡±¡£
+AVClassÒªÇó±ØÐëÉùÃ÷ÎªÄ¿±ê½á¹¹ÌåµÄµÚÒ»¸ö±äÁ¿¡£
+
+AVClassÖÐÓÐÒ»¸öoptionÊý×éÓÃÓÚ´æ´¢Ä¿±ê½á¹¹ÌåµÄËùÓÐµÄAVOption¡£
+¾Ù¸öÀý×Ó£¬AVFormatContext½á¹¹Ìå£¬AVClassºÍAVOptionÖ®¼äµÄ¹ØÏµÈçÏÂÍ¼ËùÊ¾¡£
+
+ÏÂÃæ¼òµ¥½âÊÍÒ»ÏÂAVClassµÄ¼¸¸öÒÑ¾­Àí½âµÄ³ÉÔ±±äÁ¿£º
+class_name£ºAVClassÃû³Æ¡£
+item_name£ºº¯Êý£¬»ñÈ¡ÓëAVClassÏà¹ØÁªµÄ½á¹¹ÌåÊµÀýµÄÃû³Æ¡£
+option£ºAVOptionÀàÐÍµÄÊý×é£¨×îÖØÒª£©¡£
+version£ºÍê³É¸ÃAVClassµÄÊ±ºòµÄLIBAVUTIL_VERSION¡£
+category£ºAVClassµÄÀàÐÍ£¬ÊÇÒ»¸öÀàÐÍÎªAVClassCategoryµÄÃ¶¾ÙÐÍ±äÁ¿¡£
+
+¸÷¸ö½á¹¹ÌåÀï¶¼ÓÐAVClass
+AVFormatContextÖÐµÄAVClass
+avformat_alloc_context()->avformat_get_context_defaults()
+
+AVCodecContextÖÐµÄAVClass
+avcodec_alloc_context3()->init_context_defaults()
+
+AVFrameÖÐµÄAVClass
+
+¸÷ÖÖ×é¼þ£¨libRTMP£¬libx264£¬libx265£©ÀïÃæÌØÓÐµÄAVClass¡£
+
+¸÷ÖÖ×é¼þÌØÓÐµÄAVClass
+³ýÁËFFmpegÖÐÍ¨ÓÃµÄAVFormatContext£¬AVCodecContext£¬AVFrameÕâÀàµÄ½á¹¹ÌåÖ®Íâ£¬
+Ã¿ÖÖÌØ¶¨µÄ×é¼þÒ²°üº¬×Ô¼ºµÄAVClass¡£ÏÂÃæ¾ÙÀý¼¸¸ö¡£
+
+LibRTMP
+libRTMPÖÐ¸ù¾ÝÐ­ÒéÀàÐÍµÄ²»Í¬¶¨ÒåÁË¶àÖÖµÄAVClass¡£
+ÓÉÓÚÕâÐ©AVClass³ýÁËÃû×Ö²»Ò»ÑùÖ®Íâ£¬ÆäËûµÄ×Ö¶ÎÒ»Ä£Ò»Ñù£¬
+ËùÒÔAVClassµÄÉùÃ÷Ð´³ÉÁËÒ»¸öÃû³ÆÎªRTMP_CLASSµÄºê¡£
+
+Libx264
+static const AVClass x264_class;
+
+
+
+*/
 typedef struct AVClass {
     /**
      * The name of the class; usually it is the same name as the
@@ -151,6 +193,17 @@ typedef struct AVClass {
  *
  * @{
  */
+
+/*
+´Ó¶¨ÒåÖÐ¿ÉÒÔ¿´³öÀ´£¬Ëæ×ÅÑÏÖØ³Ì¶ÈÖð½¥ÏÂ½µ£¬Ò»¹²°üº¬ÈçÏÂ¼¶±ð£º
+AV_LOG_PANIC£¬AV_LOG_FATAL£¬AV_LOG_ERROR£¬AV_LOG_WARNING£¬AV_LOG_INFO£¬AV_LOG_VERBOSE£¬AV_LOG_DEBUG¡£
+Ã¿¸ö¼¶±ð¶¨ÒåµÄÊýÖµ´ú±íÁËÑÏÖØ³Ì¶È£¬ÊýÖµÔ½Ð¡´ú±íÔ½ÑÏÖØ¡£Ä¬ÈÏµÄ¼¶±ðÊÇAV_LOG_INFO¡£
+´ËÍâ£¬»¹ÓÐÒ»¸ö¼¶±ð²»Êä³öÈÎºÎÐÅÏ¢£¬¼´AV_LOG_QUIET¡£µ±Ç°ÏµÍ³´æÔÚ×ÅÒ»¸ö¡°Log¼¶±ð¡±¡
+£ËùÓÐÑÏÖØ³Ì¶È¸ßÓÚ¸Ã¼¶±ðµÄLogÐÅÏ¢¶¼»áÊä³ö³öÀ´¡£ÀýÈçµ±Ç°µÄLog¼¶±ðÊÇAV_LOG_WARNING£¬
+Ôò»áÊä³öAV_LOG_PANIC£¬AV_LOG_FATAL£¬AV_LOG_ERROR£¬AV_LOG_WARNING¼¶±ðµÄÐÅÏ¢£¬
+¶ø²»»áÊä³öAV_LOG_INFO¼¶±ðµÄÐÅÏ¢¡£¿ÉÒÔÍ¨¹ýav_log_get_level()»ñµÃµ±Ç°LogµÄ¼¶±ð£¬
+Í¨¹ýÁíÒ»¸öº¯Êýav_log_set_level()ÉèÖÃµ±Ç°µÄLog¼¶±ð¡£
+*/
 
 /**
  * Print no output.

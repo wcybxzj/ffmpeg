@@ -66,6 +66,7 @@ static void av_bprint_grow(AVBPrint *buf, unsigned extra_len)
         buf->str[FFMIN(buf->len, buf->size - 1)] = 0;
 }
 
+
 void av_bprint_init(AVBPrint *buf, unsigned size_init, unsigned size_max)
 {
     unsigned size_auto = (char *)buf + sizeof(*buf) -

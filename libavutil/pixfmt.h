@@ -57,6 +57,7 @@
  * for pal8. This palette is filled in automatically by the function
  * allocating the picture.
  */
+//FFmpeg支持的像素格式的定义
 enum AVPixelFormat {
     AV_PIX_FMT_NONE = -1,
     AV_PIX_FMT_YUV420P,   ///< planar YUV 4:2:0, 12bpp, (1 Cr & Cb sample per 2x2 Y samples)

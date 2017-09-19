@@ -40,7 +40,10 @@
 #define D AV_OPT_FLAG_DECODING_PARAM
 
 #define AV_CODEC_DEFAULT_BITRATE 200*1000
-
+/*
+可以看出AVFrame的选项数组中包含了“width”，“height”这类用于视频帧的选项，
+以及“channel_layout”，“sample_rate”这类用于音频帧的选项。
+*/
 static const AVOption avcodec_options[] = {
 {"b", "set bitrate (in bits/s)", OFFSET(bit_rate), AV_OPT_TYPE_INT64, {.i64 = AV_CODEC_DEFAULT_BITRATE }, 0, INT64_MAX, A|V|E},
 {"ab", "set bitrate (in bits/s)", OFFSET(bit_rate), AV_OPT_TYPE_INT64, {.i64 = 128*1000 }, 0, INT_MAX, A|E},

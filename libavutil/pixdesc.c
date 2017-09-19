@@ -2282,6 +2282,7 @@ enum AVPixelFormat av_get_pix_fmt(const char *name)
     return pix_fmt;
 }
 
+//通过该函数可以获得指定像素格式每个像素占用的比特数（Bit Per Pixel）。
 int av_get_bits_per_pixel(const AVPixFmtDescriptor *pixdesc)
 {
     int c, bits = 0;
