@@ -2237,7 +2237,19 @@ yuv2ayuv64le_X_c(SwsContext *c, const int16_t *lumFilter,
         AV_WL16(dest + 8 * i + 6, V);
     }
 }
+/*
+ff_sws_init_output_funcs()用于初始化“输出函数”。
+“输出函数”在libswscale中的作用就是将处理后的一行像素数据输出出来。
 
+ff_sws_init_output_funcs()根据输出像素格式的不同，对以下几个函数指针进行赋值：
+yuv2plane1：是yuv2planar1_fn类型的函数指针。该函数用于输出一行水平拉伸后的planar格式数据。数据没有使用垂直拉伸。
+yuv2planeX：是yuv2planarX_fn类型的函数指针。该函数用于输出一行水平拉伸后的planar格式数据。数据使用垂直拉伸。
+yuv2packed1：是yuv2packed1_fn类型的函数指针。该函数用于输出一行水平拉伸后的packed格式数据。数据没有使用垂直拉伸。
+yuv2packed2：是yuv2packed2_fn类型的函数指针。该函数用于输出一行水平拉伸后的packed格式数据。数据使用两行数据进行垂直拉伸。
+yuv2packedX：是yuv2packedX_fn类型的函数指针。该函数用于输出一行水平拉伸后的packed格式数据。数据使用垂直拉伸。
+yuv2nv12cX：是yuv2interleavedX_fn类型的函数指针。还没有研究该函数。
+yuv2anyX：是yuv2anyX_fn类型的函数指针。还没有研究该函数。
+*/
 av_cold void ff_sws_init_output_funcs(SwsContext *c,
                                       yuv2planar1_fn *yuv2plane1,
                                       yuv2planarX_fn *yuv2planeX,

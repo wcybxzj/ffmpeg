@@ -843,6 +843,26 @@ static void fill_xyztables(struct SwsContext *c)
     }
 }
 
+/*
+初始化颜色空间通过函数sws_setColorspaceDetails()完成
+
+c：需要设定的SwsContext。
+inv_table：描述输出YUV颜色空间的参数表。
+srcRange：输入图像的取值范围（“1”代表JPEG标准，取值范围是0-255；
+							“0”代表MPEG标准，取值范围是16-235）。
+table：描述输入YUV颜色空间的参数表。
+dstRange：输出图像的取值范围。
+brightness：未研究。
+contrast：未研究。
+saturation：未研究。
+如果返回-1代表设置不成功。
+其中描述颜色空间的参数表可以通过sws_getCoefficients()获取。
+
+从sws_setColorspaceDetails()定义中可以看出，该函数将输入的参数分别赋值给了相应的变量，
+并且在最后调用了一个函数fill_rgb2yuv_table()。fill_rgb2yuv_table()函数还没有弄懂，暂时不记录。
+
+*/
+
 int sws_setColorspaceDetails(struct SwsContext *c, const int inv_table[4],
                              int srcRange, const int table[4], int dstRange,
                              int brightness, int contrast, int saturation)
@@ -1060,6 +1080,10 @@ static void handle_formats(SwsContext *c)
         fill_xyztables(c);
 }
 
+/*
+从代码中可以看出，sws_alloc_context()首先调用av_mallocz()为SwsContext结构体分配了一块内存；
+然后设置了该结构体的AVClass，并且给该结构体的字段设置了默认值。
+*/
 SwsContext *sws_alloc_context(void)
 {
     SwsContext *c = av_mallocz(sizeof(SwsContext));
@@ -1145,7 +1169,17 @@ static enum AVPixelFormat alphaless_fmt(enum AVPixelFormat fmt)
     default: return AV_PIX_FMT_NONE;
     }
 }
-
+/*
+sws_init_context()除了对SwsContext中的各种变量进行赋值之外，主要按照顺序完成了以下一些工作：
+1.	通过sws_rgb2rgb_init()初始化RGB转RGB（或者YUV转YUV）的函数（注意不包含RGB与YUV相互转换的函数）。
+2.	通过判断输入输出图像的宽高来判断图像是否需要拉伸。如果图像不需要拉伸，那么unscaled变量会被标记为1。
+3.	通过sws_setColorspaceDetails()初始化颜色空间。
+4.	一些输入参数的检测。例如：如果没有设置图像拉伸方法的话，默认设置为SWS_BICUBIC；如果输入和输出图像的宽高小于等于0的话，也会返回错误信息。
+5.	初始化Filter。这一步根据拉伸方法的不同，初始化不同的Filter。
+6.	如果flags中设置了“打印信息”选项SWS_PRINT_INFO，则输出信息。
+7.	如果不需要拉伸的话，调用ff_get_unscaled_swscale()将特定的像素转换函数的指针赋值给SwsContext中的swscale指针。
+8.	如果需要拉伸的话，调用ff_getSwsFunc()将通用的swscale()赋值给SwsContext中的swscale指针（这个地方有点绕，但是确实是这样的）。
+*/
 av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
                              SwsFilter *dstFilter)
 {
@@ -1171,9 +1205,11 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
     emms_c();
     if (!rgb15to16)
         ff_sws_rgb2rgb_init();
-
+	
+    //如果输入的宽高和输出的宽高一样，则做特殊处理 也就是unscaled
     unscaled = (srcW == dstW && srcH == dstH);
-
+	
+    //如果是JPEG标准（Y取值0-255），则需要设置这两项  
     c->srcRange |= handle_jpeg(&c->srcFormat);
     c->dstRange |= handle_jpeg(&c->dstFormat);
 
@@ -1194,14 +1230,16 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
     // If the source has no alpha then disable alpha blendaway
     if (c->src0Alpha)
         c->alphablend = SWS_ALPHA_BLEND_NONE;
-
+    //转换大小端？  
     if (!(unscaled && sws_isSupportedEndiannessConversion(srcFormat) &&
           av_pix_fmt_swap_endianness(srcFormat) == dstFormat)) {
+    //检查输入格式是否支持
     if (!sws_isSupportedInput(srcFormat)) {
         av_log(c, AV_LOG_ERROR, "%s is not supported as input pixel format\n",
                av_get_pix_fmt_name(srcFormat));
         return AVERROR(EINVAL);
     }
+    //检查输出格式是否支持  
     if (!sws_isSupportedOutput(dstFormat)) {
         av_log(c, AV_LOG_ERROR, "%s is not supported as output pixel format\n",
                av_get_pix_fmt_name(dstFormat));
@@ -1210,6 +1248,9 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
     }
     av_assert2(desc_src && desc_dst);
 
+	//检查拉伸的方法
+	//例如：如果没有设置图像拉伸方法的话，默认设置为SWS_BICUBIC；
+	//	    如果输入和输出图像的宽高小于等于0的话，也会返回错误信息。
     i = flags & (SWS_POINT         |
                  SWS_AREA          |
                  SWS_BILINEAR      |
@@ -1222,6 +1263,7 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
                  SWS_SPLINE        |
                  SWS_BICUBLIN);
 
+	//如果没有指定，就使用默认的  
     /* provide a default scaler if not set by caller */
     if (!i) {
         if (dstW < srcW && dstH < srcH)
@@ -1236,6 +1278,8 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
                "Exactly one scaler algorithm must be chosen, got %X\n", i);
         return AVERROR(EINVAL);
     }
+	
+    //检查宽高参数  
     /* sanity check */
     if (srcW < 1 || srcH < 1 || dstW < 1 || dstH < 1) {
         /* FIXME check if these are enough and try to lower them after
@@ -1779,9 +1823,13 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
         return 0;
     }
 
+    //不拉伸的情况  
     /* unscaled special cases */
     if (unscaled && !usesHFilter && !usesVFilter &&
         (c->srcRange == c->dstRange || isAnyRGB(dstFormat))) {
+        //不许拉伸的情况下，初始化相应的函数
+        //7.如果不需要拉伸的话，
+        //就会调用ff_get_unscaled_swscale()将特定的像素转换函数的指针赋值给SwsContext中的swscale指针。
         ff_get_unscaled_swscale(c);
 
         if (c->swscale) {
@@ -1792,7 +1840,12 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
             return 0;
         }
     }
-
+	
+    //关键：设置SwsContext中的swscale()指针  
+    /*
+    8.如果需要拉伸的话，就会调用ff_getSwsFunc()将通用的swscale()赋值给SwsContext中的swscale指针，然后返回。	
+	上一步骤（图像不用缩放）实际上是一种不太常见的情况，更多的情况下会执行本步骤。这个时候就会调用ff_getSwsFunc()获取图像的缩放函数。
+	*/
     c->swscale = ff_getSwsFunc(c);
     return ff_init_filters(c);
 fail: // FIXME replace things by appropriate error codes
@@ -1852,6 +1905,39 @@ SwsContext *sws_alloc_set_opts(int srcW, int srcH, enum AVPixelFormat srcFormat,
 
     return c;
 }
+/*
+打算写两篇文章记录FFmpeg中的图像处理（缩放，YUV/RGB格式转换）类库libswsscale的源代码。
+libswscale是一个主要用于处理图片像素数据的类库。
+可以完成图片像素格式的转换，图片的拉伸等工作。
+
+libswscale常用的函数数量很少，一般情况下就3个：
+sws_getContext()：初始化一个SwsContext。
+sws_scale()：处理图像数据。
+sws_freeContext()：释放一个SwsContext。
+
+其中sws_getContext()也可以用sws_getCachedContext()取代。
+尽管libswscale从表面上看常用函数的个数不多，它的内部却有一个大大的“世界”。
+做为一个几乎“万能”的图片像素数据处理类库，它的内部包含了大量的代码。
+首先分析它的初始化函数sws_getContext()，
+然后分析它的数据处理函数sws_scale()。
+*/
+
+/*
+该函数包含以下参数：
+srcW：源图像的宽
+srcH：源图像的高
+srcFormat：源图像的像素格式
+dstW：目标图像的宽
+dstH：目标图像的高
+dstFormat：目标图像的像素格式
+flags：设定图像拉伸使用的算法
+成功执行的话返回生成的SwsContext，否则返回NULL。
+
+从sws_getContext()的定义中可以看出，它首先调用了一个函数sws_alloc_context()用于给SwsContext分配内存。
+然后将传入的源图像，目标图像的宽高，像素格式，以及标志位分别赋值给该SwsContext相应的字段。
+最后调用一个函数sws_init_context()完成初始化工作
+
+*/
 
 SwsContext *sws_getContext(int srcW, int srcH, enum AVPixelFormat srcFormat,
                            int dstW, int dstH, enum AVPixelFormat dstFormat,

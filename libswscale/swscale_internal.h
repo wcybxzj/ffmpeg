@@ -79,6 +79,16 @@ typedef enum SwsAlphaBlend {
     SWS_ALPHA_BLEND_NB,
 } SwsAlphaBlend;
 
+/*
+可以看出SwsFunc的定义的参数类型和libswscale类库外部接口函数swscale()的参数类型一模一样。
+在libswscale中，该指针的指向可以分成2种情况：
+1.图像没有伸缩的时候，指向专有的像素转换函数
+2.图像有伸缩的时候，指向swscale()函数。
+在调用sws_getContext()初始化SwsContext的时候，会在其子函数sws_init_context()中对swscale指针进行赋值。
+如果图像没有进行拉伸，则会调用ff_get_unscaled_swscale()对其进行赋值；
+如果图像进行了拉伸，则会调用ff_getSwsFunc()对其进行赋值。
+*/
+
 typedef int (*SwsFunc)(struct SwsContext *context, const uint8_t *src[],
                        int srcStride[], int srcSliceY, int srcSliceH,
                        uint8_t *dst[], int dstStride[]);
@@ -276,7 +286,30 @@ typedef void (*yuv2anyX_fn)(struct SwsContext *c, const int16_t *lumFilter,
 struct SwsSlice;
 struct SwsFilterDescriptor;
 
+//SwsContext是使用libswscale时候一个贯穿始终的结构体。
 /* This struct should be aligned on at least a 32-byte boundary. */
+/*
+SwsContext中的swscale()
+swscale这个变量的类型是SwsFunc，实际上就是一个函数指针。它是整个类库的核心。
+当我们从外部调用swscale()函数的时候，实际上就是调用了SwsContext中的这个名称为swscale的变量
+（注意外部函数接口和这个内部函数指针的名字是一样的，但不是一回事）。
+
+在libswscale中，该指针的指向可以分成2种情况：
+1.图像没有伸缩的时候，指向专有的像素转换函数
+2.图像有伸缩的时候，指向swscale()函数。
+
+在调用sws_getContext()初始化SwsContext的时候，会在其子函数sws_init_context()中对swscale指针进行赋值。
+如果图像没有进行拉伸，则会调用ff_get_unscaled_swscale()对其进行赋值；
+如果图像进行了拉伸，则会调用ff_getSwsFunc()对其进行赋值。下面分别看一下这2种情况。
+
+没有拉伸--专有的像素转换函数
+如果图像没有进行拉伸，则会调用ff_get_unscaled_swscale()对SwsContext的swscale进行赋值。
+
+有拉伸--swscale()
+如果图像进行了拉伸，则会调用ff_getSwsFunc()对SwsContext的swscale进行赋值。
+
+*/
+
 typedef struct SwsContext {
     /**
      * info on struct for av_log
@@ -612,7 +645,8 @@ typedef struct SwsContext {
                     const uint8_t *src, const int16_t *filter,
                     const int32_t *filterPos, int filterSize);
     /** @} */
-
+	
+	//在ff_sws_init_range_convert()中初始化的
     /// Color range conversion function for luma plane if needed.
     void (*lumConvertRange)(int16_t *dst, int width);
     /// Color range conversion function for chroma planes if needed.
@@ -792,7 +826,7 @@ static av_always_inline int isPlanarRGB(enum AVPixelFormat pix_fmt)
     return ((desc->flags & (AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_RGB)) ==
             (AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_RGB));
 }
-
+//通过判定AVPixFmtDescriptor中的flag是否包含AV_PIX_FMT_FLAG_PAL来断定像素格式是否使用了“调色板”。
 static av_always_inline int usePal(enum AVPixelFormat pix_fmt)
 {
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
@@ -829,7 +863,11 @@ void ff_get_unscaled_swscale_aarch64(SwsContext *c);
  * on architecture and available optimizations.
  */
 SwsFunc ff_getSwsFunc(SwsContext *c);
-
+/*
+ff_sws_init_output_funcs()用于初始化“输出函数”。
+“输出函数”在libswscale中的作用就是将处理后的一行像素数据输出出来。
+ff_sws_init_output_funcs()的定义位于libswscale\output.c，如下所示。
+*/
 void ff_sws_init_input_funcs(SwsContext *c);
 void ff_sws_init_output_funcs(SwsContext *c,
                               yuv2planar1_fn *yuv2plane1,

@@ -522,6 +522,7 @@ static void monoblack2Y_c(uint8_t *_dst, const uint8_t *src, const uint8_t *unus
     }
 }
 
+//从yuy2ToY_c()的定义可以看出，该函数取出了所有的Y值（Y值在src[]数组中的下标为偶数）。
 static void yuy2ToY_c(uint8_t *dst, const uint8_t *src, const uint8_t *unused1, const uint8_t *unused2,  int width,
                       uint32_t *unused)
 {
@@ -795,7 +796,15 @@ static void bgr24ToUV_half_c(uint8_t *_dstU, uint8_t *_dstV, const uint8_t *unus
     }
     av_assert1(src1 == src2);
 }
+/*
+从源代码中可以看出，该函数主要完成了以下三步：
+1.	取系数。通过读取rgb2yuv数组中存储的参数获得R，G，B每个分量的系数。
+2.	取像素值。分别读取R，G，B每个分量的像素值。
+3.	计算得到亮度值。根据R，G，B的系数和值，计算得到亮度值Y。
 
+从rgb24ToY_c()的定义可以看出，该函数通过R、G、B三个元素计算Y的值。
+其中R、G、B的系数取自于数组rgb2yuv[]（这个地方还没有研究）；RGB2YUV_SHIFT似乎代表了转换后YUV的位数，取值为15（这个地方也还没有深入看）。
+*/
 static void rgb24ToY_c(uint8_t *_dst, const uint8_t *src, const uint8_t *unused1, const uint8_t *unused2, int width,
                        uint32_t *rgb2yuv)
 {
@@ -829,6 +838,10 @@ static void rgb24ToUV_c(uint8_t *_dstU, uint8_t *_dstV, const uint8_t *unused0, 
         dstV[i] = (rv*r + gv*g + bv*b + (256<<(RGB2YUV_SHIFT-1)) + (1<<(RGB2YUV_SHIFT-7)))>>(RGB2YUV_SHIFT-6);
     }
 }
+/*
+rgb24ToUV_half_c()的过程相比rgb24ToY_c()要稍微复杂些。
+这主要是因为U，V取值的数量只有Y的一半。因此需要首先求出每2个像素点的平均值之后，再进行计算。
+*/
 
 static void rgb24ToUV_half_c(uint8_t *_dstU, uint8_t *_dstV, const uint8_t *unused0, const uint8_t *src1,
                              const uint8_t *src2, int width, uint32_t *rgb2yuv)
@@ -848,7 +861,7 @@ static void rgb24ToUV_half_c(uint8_t *_dstU, uint8_t *_dstV, const uint8_t *unus
         dstV[i] = (rv*r + gv*g + bv*b + (256<<RGB2YUV_SHIFT) + (1<<(RGB2YUV_SHIFT-6)))>>(RGB2YUV_SHIFT-5);
     }
 }
-
+//可以看出处理planar格式的GBR数据和处理packed格式的RGB数据的方法是基本一样的，在这里不再重复。
 static void planar_rgb_to_y(uint8_t *_dst, const uint8_t *src[4], int width, int32_t *rgb2yuv)
 {
     uint16_t *dst = (uint16_t *)_dst;
@@ -979,6 +992,35 @@ rgb9plus_planar_funcs(16)
 rgb9plus_planar_transparency_funcs(10)
 rgb9plus_planar_transparency_funcs(12)
 rgb9plus_planar_transparency_funcs(16)
+/*
+ff_sws_init_input_funcs()用于初始化“输入函数”。
+“输入函数”在libswscale中的作用就是任意格式的像素转换为YUV格式以供后续的处理。
+
+ff_sws_init_input_funcs()根据输入像素格式的不同，对以下几个函数指针进行赋值：
+lumToYV12：转换得到Y分量。
+chrToYV12：转换得到UV分量。
+alpToYV12：转换得到Alpha分量。
+readLumPlanar：读取planar格式的数据转换为Y。
+readChrPlanar：读取planar格式的数据转换为UV。
+
+
+下面看几个例子。
+当输入像素格式为AV_PIX_FMT_RGB24的时候，lumToYV12()指针指向的函数是rgb24ToY_c()，如下所示。
+case AV_PIX_FMT_RGB24:  
+    c->lumToYV12 = rgb24ToY_c;  
+    break;  
+
+case AV_PIX_FMT_RGB24:  
+    c->chrToYV12 = rgb24ToUV_half_c;  
+    break;  
+
+当输入像素格式为AV_PIX_FMT_GBRP（注意这个是planar格式，三个分量分别为G，B，R）的时候，readLumPlanar指向的函数是planar_rgb_to_y()，如下所示。
+case AV_PIX_FMT_GBRP:  
+    c->readLumPlanar = planar_rgb_to_y;  
+    break;  
+
+
+*/
 
 av_cold void ff_sws_init_input_funcs(SwsContext *c)
 {

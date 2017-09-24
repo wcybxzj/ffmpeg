@@ -143,7 +143,15 @@ DECLARE_ALIGNED(8, extern const uint64_t, ff_bgr2UVOffset);
 */
 
 #endif /* HAVE_INLINE_ASM */
+/*
+rgb2rgb_init_x86()用于初始化基于X86汇编语言的RGB互转的代码。
+由于对汇编不是很熟，不再作详细分析，出于和rgb2rgb_init_c()相对比的目的，列出它的代码。
 
+可以看出，rgb2rgb_init_x86()首先调用了av_get_cpu_flags()获取CPU支持的特性，
+根据特性调用rgb2rgb_init_mmx()，rgb2rgb_init_3dnow()，rgb2rgb_init_mmxext()，
+rgb2rgb_init_sse2()，rgb2rgb_init_avx()等函数。
+
+*/
 av_cold void rgb2rgb_init_x86(void)
 {
 #if HAVE_INLINE_ASM

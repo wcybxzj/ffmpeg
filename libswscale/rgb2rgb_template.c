@@ -869,7 +869,11 @@ static void yuyvtoyuv420_c(uint8_t *ydst, uint8_t *udst, uint8_t *vdst,
         ydst += lumStride;
     }
 }
-
+/*
+该函数将YUYV像素数据分离成为Y，U，V三个分量的像素数据。
+extract_even_c()用于获取一行像素中序数为偶数的像素，对应提取了YUYV像素格式中的“Y”。
+extract_odd2_c()用于获取一行像素中序数为奇数的像素，并且把这些像素值再次按照奇偶的不同，存储于两个数组中。对应提取了YUYV像素格式中的“U”和“V”。
+*/
 static void yuyvtoyuv422_c(uint8_t *ydst, uint8_t *udst, uint8_t *vdst,
                            const uint8_t *src, int width, int height,
                            int lumStride, int chromStride, int srcStride)

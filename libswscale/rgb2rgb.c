@@ -124,6 +124,22 @@ void (*yuyvtoyuv422)(uint8_t *ydst, uint8_t *udst, uint8_t *vdst,
 #include "rgb2rgb_template.c"
 
 /*
+1.初始化RGB转RGB（或者YUV转YUV）的函数。注意这部分函数不包含RGB与YUV相互转换的函数。
+sws_rgb2rgb_init()
+
+从sws_rgb2rgb_init()代码中可以看出，有两个初始化函数：
+rgb2rgb_init_c()是初始化C语言版本的RGB互转（或者YUV互转）的函数，
+rgb2rgb_init_x86()则是初始化X86汇编版本的RGB互转的函数。
+
+PS：
+在libswscale中有一点需要注意：很多的函数名称中包含类似“_c”这样的字符串，
+代表了该函数是C语言写的。与之对应的还有其它标记，比如“_mmx”，“sse2”等。
+
+可以看出rgb2rgb_init_c()执行后，会把C语言版本的图像格式转换函数赋值给系统的函数指针。
+
+*/
+
+/*
  * RGB15->RGB16 original by Strepto/Astral
  * ported to gcc & bugfixed : A'rpi
  * MMXEXT, 3DNOW optimization by Nick Kurshev

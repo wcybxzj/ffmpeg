@@ -352,7 +352,9 @@ static int yuyvToYuv420Wrapper(SwsContext *c, const uint8_t *src[],
 
     return srcSliceH;
 }
-
+/*
+从yuyvToYuv422Wrapper()的定义中可以看出，它调用了yuyvtoyuv422()。而yuyvtoyuv422()则是rgb2rgb.c中的一个函数，用于将YUVU转换为YUV422（该函数在前文中已经记录）。
+*/
 static int yuyvToYuv422Wrapper(SwsContext *c, const uint8_t *src[],
                                int srcStride[], int srcSliceY, int srcSliceH,
                                uint8_t *dstParam[], int dstStride[])
@@ -1671,7 +1673,15 @@ static int planarCopyWrapper(SwsContext *c, const uint8_t *src[],
     ((src_fmt == pix_fmt ## BE && dst_fmt == pix_fmt ## LE) ||     \
      (src_fmt == pix_fmt ## LE && dst_fmt == pix_fmt ## BE))
 
+/*
+从ff_get_unscaled_swscale()源代码中可以看出，
+赋值给SwsContext的swscale指针的函数名称大多数为XXXWrapper()。
+实际上这些函数封装了一些基本的像素格式转换函数
+例如yuyvToYuv422Wrapper()
 
+从代码中可以看出，它根据输入输出像素格式的不同，选择了不同的转换函数。
+例如YUV420P转换NV12的时候，就会将planarToNv12Wrapper()赋值给SwsContext的swscale指针。
+*/
 void ff_get_unscaled_swscale(SwsContext *c)
 {
     const enum AVPixelFormat srcFormat = c->srcFormat;

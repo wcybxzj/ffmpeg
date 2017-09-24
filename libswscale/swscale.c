@@ -149,6 +149,7 @@ static void hScale8To19_c(SwsContext *c, int16_t *_dst, int dstW,
     }
 }
 
+//色度转换（16-240转换为0-255）函数chrRangeToJpeg_c()定义如下所示。
 // FIXME all pal and rgb srcFormats could do this conversion as well
 // FIXME all scalers more complex than bilinear could do half of this transform
 static void chrRangeToJpeg_c(int16_t *dstU, int16_t *dstV, int width)
@@ -160,6 +161,7 @@ static void chrRangeToJpeg_c(int16_t *dstU, int16_t *dstV, int width)
     }
 }
 
+//色度转换（0-255转换为16-240）函数chrRangeFromJpeg_c()如下所示。
 static void chrRangeFromJpeg_c(int16_t *dstU, int16_t *dstV, int width)
 {
     int i;
@@ -168,7 +170,7 @@ static void chrRangeFromJpeg_c(int16_t *dstU, int16_t *dstV, int width)
         dstV[i] = (dstV[i] * 1799 + 4081085) >> 11; // 1469
     }
 }
-
+//亮度转换（16-235转换为0-255）函数lumRangeToJpeg_c()定义如下所示。
 static void lumRangeToJpeg_c(int16_t *dst, int width)
 {
     int i;
@@ -176,6 +178,15 @@ static void lumRangeToJpeg_c(int16_t *dst, int width)
         dst[i] = (FFMIN(dst[i], 30189) * 19077 - 39057361) >> 14;
 }
 
+/*
+亮度转换（0-255转换为16-235）函数lumRangeFromJpeg_c()如下所示。
+可以简单代入一个数字验证一下上述函数的正确性。
+该函数将亮度值“0”映射成“16”，“255”映射成“235”，因此我们可以代入一个“255”看看转换后的数值是否为“235”。
+在这里需要注意，dst中存储的像素数值是15bit的亮度值。因此我们需要将8bit的数值“255”左移7位后带入。经过计算，255左移7位后取值为32640，
+计算后得到的数值为30080，右移7位后得到的8bit亮度值即为235。
+后续几个函数都可以用上面描述的方法进行验证，就不再重复了。
+
+*/
 static void lumRangeFromJpeg_c(int16_t *dst, int width)
 {
     int i;
@@ -227,7 +238,23 @@ static void lumRangeFromJpeg16_c(int16_t *_dst, int width)
 #define DEBUG_BUFFERS(...)                      \
     if (DEBUG_SWSCALE_BUFFERS)                  \
         av_log(c, AV_LOG_DEBUG, __VA_ARGS__)
+/*
+可以看出swscale()是一行一行的进行图像缩放工作的。其中每行数据的处理按照“先水平拉伸，然后垂直拉伸”的方式进行处理。具体的实现函数如下所示：
+1.	水平拉伸
+	a)	亮度水平拉伸：hyscale()
+	b)	色度水平拉伸：hcscale()
 
+2.	垂直拉伸
+	a)	Planar
+		i.	亮度垂直拉伸-不拉伸：yuv2plane1()
+		ii.	亮度垂直拉伸-拉伸：yuv2planeX()
+		iii.	色度垂直拉伸-不拉伸：yuv2plane1()
+		iv.	色度垂直拉伸-拉伸：yuv2planeX()
+	b)	Packed
+		i.	垂直拉伸-不拉伸：yuv2packed1()
+		ii.	垂直拉伸-拉伸：yuv2packedX()
+下面具体看看这几个函数的定义。
+*/
 static int swscale(SwsContext *c, const uint8_t *src[],
                    int srcStride[], int srcSliceY,
                    int srcSliceH, uint8_t *dst[], int dstStride[])
@@ -368,8 +395,11 @@ static int swscale(SwsContext *c, const uint8_t *src[],
         hout_slice->plane[3].sliceH = 0;
         hout_slice->width = dstW;
     }
-
+	
+    //逐行循环，一次循环代表处理一行  
+    //注意dstY和dstH两个变量  
     for (; dstY < dstH; dstY++) {
+        //色度的和亮度之间的关系  
         const int chrDstY = dstY >> c->chrDstVSubSample;
         int use_mmx_vfilter= c->use_mmx_vfilter;
 
@@ -530,7 +560,16 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 
     return dstY - lastDstY;
 }
+/*
+ff_sws_init_range_convert()用于初始化像素值范围转换的函数，它的定义位于libswscale\swscale.c，如下所示。
+ff_sws_init_range_convert()包含了两种像素取值范围的转换：
+lumConvertRange：亮度分量取值范围的转换。
+chrConvertRange：色度分量取值范围的转换。
 
+从JPEG标准转换为MPEG标准的函数有：lumRangeFromJpeg_c()和chrRangeFromJpeg_c()。
+从MPEG标准转换为JPEG标准的函数有：lumRangeToJpeg_c()和chrRangeToJpeg_c()。
+
+*/
 av_cold void ff_sws_init_range_convert(SwsContext *c)
 {
     c->lumConvertRange = NULL;
@@ -555,7 +594,20 @@ av_cold void ff_sws_init_range_convert(SwsContext *c)
         }
     }
 }
+/*
+从函数中可以看出，sws_init_swscale()主要调用了3个函数：
+ff_sws_init_output_funcs()用于初始化输出的函数，
+ff_sws_init_input_funcs()用于初始化输入的函数，
+ff_sws_init_range_convert()用于初始化像素值范围转换的函数。
 
+从sws_init_swscale ()的定义可以看出，ff_sws_init_input_funcs()和ff_sws_init_range_convert()之间的代码完成了hyScale()的初始化。
+根据srcBpc和dstBpc取值的不同，有几种不同的拉伸函数。
+srcBpc代表了输入的每个像素单个分量的位数，dstBpc代表了输出的每个像素单个分量的位数。
+最常见的像素单个分量的位数是8位。
+
+在输入像素单个分量的位数为8位，而且输出像素单个分量的位数也为8位的时候，
+SwsContext 的 hyScale ()会指向hScale8To15_c()函数。
+*/
 static av_cold void sws_init_swscale(SwsContext *c)
 {
     enum AVPixelFormat srcFormat = c->srcFormat;
@@ -589,6 +641,10 @@ static av_cold void sws_init_swscale(SwsContext *c)
         c->needs_hcscale = 1;
 }
 
+//ff_getSwsFunc()用于获取通用的swscale()函数。该函数的定义如下。
+//从源代码中可以看出ff_getSwsFunc()调用了函数sws_init_swscale()。
+//如果系统支持X86汇编的话，还会调用ff_sws_init_swscale_x86()。
+
 SwsFunc ff_getSwsFunc(SwsContext *c)
 {
     sws_init_swscale(c);
@@ -617,6 +673,11 @@ static void reset_ptr(const uint8_t *src[], enum AVPixelFormat format)
     }
 }
 
+/*
+check_image_pointers()检查输入输出图像的内存是否正确分配。
+从check_image_pointers()的定义可以看出，在特定像素格式前提下，
+如果该像素格式应该包含像素的分量为空，就返回0，否则返回1。
+*/
 static int check_image_pointers(const uint8_t * const data[4], enum AVPixelFormat pix_fmt,
                                 const int linesizes[4])
 {
@@ -746,6 +807,28 @@ static void rgb48Toxyz12(struct SwsContext *c, uint16_t *dst,
     }
 }
 
+/*
+sws_scale()是用于转换像素的函数。
+
+从sws_scale()的定义可以看出，它封装了SwsContext中的swscale()（注意这个函数中间没有“_”）。
+函数最重要的一句代码就是“c->swscale()”。除此之外，函数还做了一些增加“兼容性”的一些处理
+
+1.检查输入的图像参数的合理性。
+2.如果输入像素数据中使用了“调色板”（palette），则进行一些相应的处理。这一步通过函数usePal()来判定
+3.其它一些特殊格式的处理，比如说Alpha，XYZ等的处理（这方面没有研究过）。
+4.如果输入的图像的扫描方式是从底部到顶部的（一般情况下是从顶部到底部），则将图像进行反转。
+5.调用SwsContext中的swscale()。
+
+sws_scale函数则为执行函数，它的参数定义分别为：
+struct SwsContext *c 为sws_getContext函数返回的值；
+const uint8_t *const srcSlice[]，uint8_t *const dst[] 为输入输出图像数据各颜色通道的buffer指针数组；
+const int srcStride[]，const int dstStride[] 为输入输出图像数据各颜色通道每行存储的字节数数组；	 
+int srcSliceY 为从输入图像数据的第多少列开始逐行扫描，通常设为0；
+int srcSliceH 为需要扫描多少行，通常为输入图像数据的高度；
+
+
+*/
+
 /**
  * swscale wrapper, so we don't need to export the SwsContext.
  * Assumes planar YUV to be in YUV order instead of YVU.
@@ -766,6 +849,9 @@ int attribute_align_arg sws_scale(struct SwsContext *c,
     int dstStride2[4];
     int srcSliceY_internal = srcSliceY;
 
+	//1.检查输入的图像参数的合理性。
+	//这一步骤首先检查输入输出的参数是否为空
+    //检查输入参数  
     if (!srcStride || !dstStride || !dst || !srcSlice) {
         av_log(c, AV_LOG_ERROR, "One of the input parameters to sws_scale() is NULL, please check the calling code\n");
         return 0;
@@ -824,6 +910,7 @@ int attribute_align_arg sws_scale(struct SwsContext *c,
     memcpy(src2, srcSlice, sizeof(src2));
     memcpy(dst2, dst, sizeof(dst2));
 
+	//然后通过调用check_image_pointers()检查输入输出图像的内存是否正确分配。
     // do not mess up sliceDir if we have a "trailing" 0-size slice
     if (srcSliceH == 0)
         return 0;
@@ -844,7 +931,7 @@ int attribute_align_arg sws_scale(struct SwsContext *c,
     if (c->sliceDir == 0) {
         if (srcSliceY == 0) c->sliceDir = 1; else c->sliceDir = -1;
     }
-
+    //使用调色板palette的特殊处理？应该不常见  
     if (usePal(c->srcFormat)) {
         for (i = 0; i < 256; i++) {
             int r, g, b, y, u, v, a = 0xff;
@@ -977,6 +1064,8 @@ int attribute_align_arg sws_scale(struct SwsContext *c,
     /* reset slice direction at end of frame */
     if (srcSliceY_internal + srcSliceH == c->srcH)
         c->sliceDir = 0;
+	
+	//关键：调用  
     ret = c->swscale(c, src2, srcStride2, srcSliceY_internal, srcSliceH, dst2, dstStride2);
 
 
