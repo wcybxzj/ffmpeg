@@ -796,6 +796,18 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
 #define SIMPLE 0
 #include "h264_mb_template.c"
 
+/*
+解码函数是ff_h264_hl_decode_mb()
+其中跟宏块类型的不同，会调用几个不同的函数，最常见的就是调用hl_decode_mb_simple_8()。
+
+hl_decode_mb_simple_8()的定义是无法在源代码中直接找到的，这是因为它实际代码的函数名称是使用宏的方式写的（以后再具体分析）。
+hl_decode_mb_simple_8()的源代码实际上就是FUNC(hl_decode_mb)()函数的源代码。
+
+FUNC(hl_decode_mb)()根据宏块类型的不同作不同的处理：
+如果宏块类型是INTRA，就会调用hl_decode_mb_predict_luma()进行帧内预测；
+如果宏块类型不是INTRA，就会调用FUNC(hl_motion_422)()或者FUNC(hl_motion_420)()进行四分之一像素运动补偿。
+随后FUNC(hl_decode_mb)()会调用hl_decode_mb_idct_luma()等几个函数对数据进行DCT反变换工作。
+*/
 void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl)
 {
     const int mb_xy   = sl->mb_xy;

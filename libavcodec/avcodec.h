@@ -5410,6 +5410,17 @@ typedef struct AVCodecParserContext {
     int format;
 } AVCodecParserContext;
 
+/*
+AVCodecParser中包含了几个重要的函数指针：
+parser_init()：初始化解析器。
+parser_parse()：解析。
+parser_close()：关闭解析器。
+
+在ff_h264_parser结构体中，上述几个函数指针分别指向下面几个实现函数：
+init()：初始化H.264解析器。
+h264_parse()：解析H.264码流。
+close()：关闭H.264解析器。
+*/
 typedef struct AVCodecParser {
     int codec_ids[5]; /* several codec IDs are permitted */
     int priv_data_size;

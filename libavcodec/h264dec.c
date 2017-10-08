@@ -354,6 +354,12 @@ static int h264_init_context(AVCodecContext *avctx, H264Context *h)
     return 0;
 }
 
+//关闭H.264解码器。
+/*
+h264_decode_end()调用的清理函数：
+ff_h264_remove_all_refs()：移除所有参考帧。
+ff_h264_free_context()：释放在初始化H.264解码器的时候分配的内存。
+*/
 static av_cold int h264_decode_end(AVCodecContext *avctx)
 {
     H264Context *h = avctx->priv_data;
@@ -388,6 +394,13 @@ static av_cold int h264_decode_end(AVCodecContext *avctx)
 
 static AVOnce h264_vlc_init = AV_ONCE_INIT;
 
+/*
+ff_h264_decode_init()调用的初始化函数：
+ff_h264dsp_init()：初始化DSP相关的函数。包含了IDCT、环路滤波函数等。
+ff_h264qpel_init()：初始化四分之一像素运动补偿相关的函数。
+ff_h264_pred_init()：初始化帧内预测相关的函数。
+ff_h264_decode_extradata()：解析AVCodecContext中的extradata。
+*/
 static av_cold int h264_decode_init(AVCodecContext *avctx)
 {
     H264Context *h = avctx->priv_data;
@@ -599,7 +612,14 @@ static void debug_green_metadata(const H264SEIGreenMetaData *gm, void *logctx)
                    (float)gm->xsd_metric_value/100);
     }
 }
-
+/*
+decode_nal_units()中都调用这些解析函数完成了解析
+ff_h264_decode_nal()：解析NALU。这个函数是后几个解析函数的前提。
+ff_h264_decode_slice_header()：解析Slice Header。
+ff_h264_decode_sei()：解析SEI。
+ff_h264_decode_seq_parameter_set()：解析SPS。
+ff_h264_decode_picture_parameter_set()：解析PPS。
+*/
 static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
 {
     AVCodecContext *const avctx = h->avctx;
@@ -978,6 +998,15 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
     return buf_index;
 }
 
+//解码H.264码流。
+/*
+h264_decode_frame()逐层调用的和解码Slice相关的函数：
+decode_nal_units()，ff_h264_execute_decode_slices()，decode_slice()等。
+
+h264_decode_frame()内部调用了decode_nal_units()，
+而decode_nal_units()调用了和H.264解析器（Parser）有关的源代码
+
+*/
 static int h264_decode_frame(AVCodecContext *avctx, void *data,
                              int *got_frame, AVPacket *avpkt)
 {
@@ -1068,6 +1097,17 @@ static const AVClass h264_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
+//用于解码H.264码流的AVCodec结构体。
+/*
+ff_h264_decoder是用于解码H.264码流的AVCodec结构体。AVCodec中包含了几个重要的函数指针：
+init()：初始化解码器。
+decode()：解码。
+close()：关闭解码器。
+在ff_h264_decoder结构体中，上述几个函数指针分别指向下面几个实现函数：
+ff_h264_decode_init()：初始化H.264解码器。
+h264_decode_frame()：解码H.264码流。
+h264_decode_end()：关闭H.264解码器。
+*/
 AVCodec ff_h264_decoder = {
     .name                  = "h264",
     .long_name             = NULL_IF_CONFIG_SMALL("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"),

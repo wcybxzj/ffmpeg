@@ -428,6 +428,9 @@ static int decode_extradata_ps_mp4(const uint8_t *buf, int buf_size, H264ParamSe
     return 0;
 }
 
+/*
+ff_h264_decode_extradata()用于解析AVCodecContext的extradata（里面实际上存储了H.264的SPS、PPS）
+*/
 int ff_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
                              int *is_avc, int *nal_length_size,
                              int err_recognition, void *logctx)
@@ -441,20 +444,28 @@ int ff_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
         int i, cnt, nalsize;
         const uint8_t *p = data;
 
-        *is_avc = 1;
-
-        if (size < 7) {
+		//AVC1 描述:H.264 bitstream without start codes.是不带起始码0×00000001的。MKV/MOV/FLV中的H.264属于这种类型  
+		//H264 描述:H.264 bitstream with start codes.是带有起始码0×00000001的。MPEGTS中的H.264，或者H.264裸流属于这种类型	
+		*is_avc = 1;
+		
+        //数据量太小  
+        //随意测了一个视频  
+        //SPS: 30 Byte  
+        //PPS: 6 Byte  
+		if (size < 7) {
             av_log(logctx, AV_LOG_ERROR, "avcC %d too short\n", size);
             return AVERROR_INVALIDDATA;
         }
 
         // Decode sps from avcC
+        //解码SPS  
         cnt = *(p + 5) & 0x1f; // Number of sps
         p  += 6;
         for (i = 0; i < cnt; i++) {
             nalsize = AV_RB16(p) + 2;
             if (nalsize > size - (p - data))
                 return AVERROR_INVALIDDATA;
+            //解析  
             ret = decode_extradata_ps_mp4(p, nalsize, ps, err_recognition, logctx);
             if (ret < 0) {
                 av_log(logctx, AV_LOG_ERROR,
@@ -464,6 +475,7 @@ int ff_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
             p += nalsize;
         }
         // Decode pps from avcC
+        //解码PPS  
         cnt = *(p++); // Number of pps
         for (i = 0; i < cnt; i++) {
             nalsize = AV_RB16(p) + 2;
@@ -481,6 +493,7 @@ int ff_h264_decode_extradata(const uint8_t *data, int size, H264ParamSets *ps,
         *nal_length_size = (data[4] & 0x03) + 1;
     } else {
         *is_avc = 0;
+        //解析  
         ret = decode_extradata_ps(data, size, ps, 0, logctx);
         if (ret < 0)
             return ret;

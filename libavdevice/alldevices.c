@@ -22,6 +22,7 @@
 #include "libavutil/thread.h"
 #include "avdevice.h"
 
+//输出设备  
 #define REGISTER_OUTDEV(X, x)                                           \
     {                                                                   \
         extern AVOutputFormat ff_##x##_muxer;                           \
@@ -29,6 +30,7 @@
             av_register_output_format(&ff_##x##_muxer);                 \
     }
 
+//输入设备  
 #define REGISTER_INDEV(X, x)                                            \
     {                                                                   \
         extern AVInputFormat ff_##x##_demuxer;                          \
@@ -36,6 +38,7 @@
             av_register_input_format(&ff_##x##_demuxer);                \
     }
 
+//输入输出设备  
 #define REGISTER_INOUTDEV(X, x) REGISTER_OUTDEV(X, x); REGISTER_INDEV(X, x)
 
 static void register_all(void)

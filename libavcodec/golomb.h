@@ -82,6 +82,10 @@ static inline int get_ue_golomb(GetBitContext *gb)
 /**
  * Read an unsigned Exp-Golomb code in the range 0 to UINT32_MAX-1.
  */
+ /*
+ 熵解码函数中包含了很多的读取指数哥伦布编码数据的函数，
+ 例如get_ue_golomb_long()，get_ue_golomb()，get_se_golomb()，get_ue_golomb_31()等
+ */
 static inline unsigned get_ue_golomb_long(GetBitContext *gb)
 {
     unsigned buf, log;

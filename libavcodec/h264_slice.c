@@ -2357,7 +2357,11 @@ static int fill_filter_caches(const H264Context *h, H264SliceContext *sl, int mb
 
     return 0;
 }
+/*
+环路滤波函数（Loop Filter）对解码后的数据进行滤波，去除方块效应。
 
+
+*/
 static void loop_filter(const H264Context *h, H264SliceContext *sl, int start_x, int end_x)
 {
     uint8_t *dest_y, *dest_cb, *dest_cr;

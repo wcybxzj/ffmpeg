@@ -560,6 +560,7 @@ static H264Picture *remove_long(H264Context *h, int i, int ref_mask)
     return pic;
 }
 
+//ff_h264_remove_all_refs()£ºÒÆ³ýËùÓÐ²Î¿¼Ö¡¡£
 void ff_h264_remove_all_refs(H264Context *h)
 {
     int i;

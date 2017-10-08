@@ -109,7 +109,9 @@ static void X264_log(void *p, int level, const char *fmt, va_list args)
     av_vlog(p, level_map[level], fmt, args);
 }
 
-
+//°Ñx264_nal_t¸³Öµ¸øAVPacket  
+// x264_nal_t --> AVPacket  
+//´ÓÔ´´úÂë¿ÉÒÔ¿´³ö£¬encode_nals()µÄ×÷ÓÃ¾ÍÊÇ½«¶à¸öx264_nal_tºÏ²¢ÎªÒ»¸öAVPacket¡£
 static int encode_nals(AVCodecContext *ctx, AVPacket *pkt,
                        const x264_nal_t *nals, int nnal)
 {
@@ -120,12 +122,15 @@ static int encode_nals(AVCodecContext *ctx, AVPacket *pkt,
     if (!nnal)
         return 0;
 
-    for (i = 0; i < nnal; i++)
+    //NALUµÄ´óĞ¡  
+    //¿ÉÄÜÓĞ¶à¸öNALU 
+   for (i = 0; i < nnal; i++)
         size += nals[i].i_payload;
 
     if ((ret = ff_alloc_packet2(ctx, pkt, size, 0)) < 0)
         return ret;
-
+	
+    //pÖ¸ÏòAVPacketµÄdata  
     p = pkt->data;
 
     /* Write the SEI as part of the first frame. */
@@ -140,6 +145,8 @@ static int encode_nals(AVCodecContext *ctx, AVPacket *pkt,
         av_freep(&x4->sei);
     }
 
+    //¿½±´x264_nal_tµÄÊı¾İÖÁAVPacketµÄÊı¾İ  
+    //¿ÉÄÜÓĞ¶à¸öNALU  
     for (i = 0; i < nnal; i++){
         memcpy(p, nals[i].p_payload, nals[i].i_payload);
         p += nals[i].i_payload;
@@ -267,7 +274,29 @@ static void reconfig_encoder(AVCodecContext *ctx, const AVFrame *frame)
         }
     }
 }
+/*
+x264_frame()µ÷ÓÃÁËÈçÏÂº¯Êı£º
+[libx264 API] x264_encoder_encode()£º±àÂëÒ»Ö¡Êı¾İ¡£
+[libx264 API] x264_encoder_delayed_frames()£ºÊä³ö±àÂëÆ÷ÖĞ»º´æµÄÊı¾İ¡£
+encode_nals()£º½«±àÂëºóµÃµ½µÄx264_nal_t×ª»»ÎªAVPacket¡£
 
+
+±àÂëÒ»Ö¡Êı¾İµÄº¯ÊıÊÇX264_frame()
+*/
+
+//libx264±àÂë1Ö¡Êı¾İ  
+// AVFrame --> x264_picture_t --> x264_nal_t --> AVPacket  
+
+/*
+X264_frame()µ÷ÓÃx264_encoder_encode()Íê³ÉÁË±àÂë¹¤×÷¡£
+
+x264_encoder_encode()µÄÊäÈëÊÇx264_picture_t£¬Êä³öÊÇx264_nal_t£»
+
+X264_frame()µÄÊäÈëÊÇAVFrame£¬Êä³öÊÇAVPacket¡£
+
+X264_frame()ÔÚµ÷ÓÃ±àÂëº¯ÊıÇ°½«AVFrame×ª»»³ÉÁËx264_picture_t£¬
+¶øÔÚµ÷ÓÃ±àÂëº¯ÊıÖ®ºóµ÷ÓÃencode_nals()½«x264_nal_t×ª»»³ÉÁËAVPacket¡£
+*/
 static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
                       int *got_packet)
 {
@@ -284,13 +313,18 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     x4->pic.img.i_plane = avfmt2_num_planes(ctx->pix_fmt);
 
     if (frame) {
+        //½«AVFrameÖĞµÄÊı¾İ¸³Öµ¸øx264_picture_t  
+        //  
+        // AVFrame --> x264_picture_t  
+        //  
         for (i = 0; i < x4->pic.img.i_plane; i++) {
             x4->pic.img.plane[i]    = frame->data[i];
             x4->pic.img.i_stride[i] = frame->linesize[i];
         }
 
         x4->pic.i_pts  = frame->pts;
-
+	
+		//ÉèÖÃÖ¡ÀàĞÍ  
         switch (frame->pict_type) {
         case AV_PICTURE_TYPE_I:
             x4->pic.i_type = x4->forced_idr > 0 ? X264_TYPE_IDR
@@ -333,14 +367,23 @@ static int X264_frame(AVCodecContext *ctx, AVPacket *pkt, const AVFrame *frame,
     }
 
     do {
+		//[libx264 API] ±àÂë  
+		//  
+		// x264_picture_t --> x264_nal_t  
+		//  
         if (x264_encoder_encode(x4->enc, &nal, &nnal, frame? &x4->pic: NULL, &pic_out) < 0)
             return AVERROR_EXTERNAL;
 
-        ret = encode_nals(ctx, pkt, nal, nnal);
+        //°Ñx264_nal_t¸³Öµ¸øAVPacket  
+        //  
+        // x264_nal_t --> AVPacket  
+        //  
+		ret = encode_nals(ctx, pkt, nal, nnal);
         if (ret < 0)
             return ret;
     } while (!ret && !frame && x264_encoder_delayed_frames(x4->enc));
 
+    //¸³ÖµAVPacketÏà¹ØµÄ×Ö¶Î  
     pkt->pts = pic_out.i_pts;
     pkt->dts = pic_out.i_dts;
 
@@ -380,7 +423,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
     *got_packet = ret;
     return 0;
 }
+/*
+±àÂëÆ÷¹Ø±Õº¯ÊıÊÇX264_close()¡£
 
+X264_close()µ÷ÓÃÁËÈçÏÂº¯Êı£º
+[libx264 API] x264_encoder_close()£º¹Ø±Õ±àÂëÆ÷¡£
+
+*/
 static av_cold int X264_close(AVCodecContext *avctx)
 {
     X264Context *x4 = avctx->priv_data;
@@ -389,6 +438,7 @@ static av_cold int X264_close(AVCodecContext *avctx)
     av_freep(&x4->sei);
     //¹Ø±Õ±àÂëÆ÷  
     if (x4->enc) {
+		//[libx264 API] ¹Ø±Õ½âÂëÆ÷	
         x264_encoder_close(x4->enc);
         x4->enc = NULL;
     }
@@ -410,6 +460,7 @@ static av_cold int X264_close(AVCodecContext *avctx)
         }                                                                     \
     } while (0)
 
+//Ó³ÉäFFmpegºÍlibx264µÄÏñËØ¸ñÊ½  
 static int convert_pix_fmt(enum AVPixelFormat pix_fmt)
 {
     switch (pix_fmt) {
@@ -449,6 +500,9 @@ static int convert_pix_fmt(enum AVPixelFormat pix_fmt)
         return AVERROR(EINVAL);\
     }
 /*
+
+AVCodec½á¹¹Ìåff_libx264_encoderÖĞÉè¶¨±àÂëÆ÷³õÊ¼»¯º¯ÊıÊÇX264_init()
+
 X264_init()µÄ´úÂëÒÔºóÑĞ¾¿X264µÄÊ±ºòÔÙ½øĞĞÏ¸½ÚµÄ·ÖÎö£¬ÔÚÕâÀï¼òµ¥¼ÇÂ¼Ò»ÏÂËü×öµÄÁ½Ïî¹¤×÷£º
 £¨1£©ÉèÖÃX264ContextµÄ²ÎÊı¡£X264ContextÖ÷ÒªÍê³ÉÁËlibx264ºÍFFmpeg¶Ô½ÓµÄ¹¦ÄÜ¡£
 	 ¿ÉÒÔ¿´³ö´úÂëÖ÷ÒªÔÚÉèÖÃÒ»¸öparams½á¹¹Ìå±äÁ¿£¬¸Ã±äÁ¿µÄÀàĞÍ¼´ÊÇx264ÖĞ´æ´¢²ÎÊıµÄ½á¹¹Ìåx264_param_t¡£
@@ -456,10 +510,32 @@ X264_init()µÄ´úÂëÒÔºóÑĞ¾¿X264µÄÊ±ºòÔÙ½øĞĞÏ¸½ÚµÄ·ÖÎö£¬ÔÚÕâÀï¼òµ¥¼ÇÂ¼Ò»ÏÂËü×öµÄÁ½Ï
 	 µ÷ÓÃx264_param_default()ÉèÖÃÄ¬ÈÏ²ÎÊı£¬
 	 µ÷ÓÃx264_param_apply_profile()ÉèÖÃprofile£¬
 	 µ÷ÓÃx264_encoder_open()´ò¿ª±àÂëÆ÷µÈµÈ¡£
+
+X264_init()µ÷ÓÃÁËÈçÏÂº¯Êı£º
+[libx264 API] x264_param_default()£ºÉèÖÃÄ¬ÈÏ²ÎÊı¡£
+[libx264 API] x264_param_default_preset()£ºÉèÖÃÄ¬ÈÏpreset¡£
+convert_pix_fmt()£º½«FFmpegÏñËØ¸ñÊ½×ª»»Îªlibx264ÏñËØ¸ñÊ½¡£
+[libx264 API] x264_param_apply_profile()£ºÉèÖÃProfile¡£
+[libx264 API] x264_encoder_open()£º´ò¿ª±àÂëÆ÷¡£
+[libx264 API] x264_encoder_headers()£ºĞèÒªÈ«¾ÖÍ·µÄÊ±ºò£¬Êä³öÍ·ĞÅÏ¢¡£
+
+
+X264_init()Ö÷Òª½«¸÷ÖÖÑ¡ÏîÖµ´«µİ¸ølibx264¡£ÕâĞ©Ñ¡ÏîÓĞÁ½¸öÀ´Ô´£º
+AVCodecContextºÍX264Context¡£
+AVCodecContextÖĞ°üº¬ÁË±àÂëÆ÷µÄÒ»Ğ©Í¨ÓÃÑ¡Ïî£¬¶øX264Context°üº¬ÁËÒ»Ğ©libx264ÌØÓĞµÄÑ¡Ïî¡£
+FFmpegÖĞµÄÒ»Ğ©Ñ¡ÏîµÄµ¥Î»ºÍlibx264ÖĞ¶ÔÓ¦Ñ¡ÏîµÄµ¥Î»ÊÇ²»Ò»ÑùµÄ£¬Òò´ËĞèÒª×öÒ»Ğ©×ª»»¡£
+ÀıÈçÏñËØ¸ñÊ½µÄ×ª»»º¯Êıconvert_pix_fmt()¾ÍÊÇÍê³ÉÁËÕâ¸ö¹¦ÄÜ¡£
+
+convert_pix_fmt()½«AV_PIX_FMT_XXX×ª»»³ÉÁËX264_CSP_XXX¡£
+ÔÚÒ»ÇĞ²ÎÊıÉèÖÃÍê±Ïºó£¬X264_init()»áµ÷ÓÃx264_encoder_open()´ò¿ª±àÂëÆ÷£¬Íê³É³õÊ¼»¯¹¤×÷¡£
+
+
 */
 
+//X264_init()ÓÃÓÚ³õÊ¼»¯libx264±àÂëÆ÷
 static av_cold int X264_init(AVCodecContext *avctx)
 {
+    //FFmpegÖĞÕë¶Ôlibx264µÄË½ÓĞ½á¹¹Ìå  
     X264Context *x4 = avctx->priv_data;
     AVCPBProperties *cpb_props;
     int sw,sh;
@@ -473,6 +549,7 @@ static av_cold int X264_init(AVCodecContext *avctx)
         x264_param_default_mpeg2(&x4->params);
     } else
 #endif
+    //[libx264 API] ÉèÖÃÄ¬ÈÏ²ÎÊı  
     x264_param_default(&x4->params);
 
     x4->params.b_deblocking_filter         = avctx->flags & AV_CODEC_FLAG_LOOP_FILTER;
@@ -494,15 +571,17 @@ static av_cold int X264_init(AVCodecContext *avctx)
 
     if (avctx->level > 0)
         x4->params.i_level_idc = avctx->level;
-
+	
+    //libx264ÈÕÖ¾Êä³öÉèÖÃÎªFFmpegµÄÈÕÖ¾Êä³ö  
     x4->params.pf_log               = X264_log;
     x4->params.p_log_private        = avctx;
     x4->params.i_log_level          = X264_LOG_DEBUG;
-    x4->params.i_csp                = convert_pix_fmt(avctx->pix_fmt);
+	x4->params.i_csp                = convert_pix_fmt(avctx->pix_fmt);
 
     PARSE_X264_OPT("weightp", wpredp);
 
-    if (avctx->bit_rate) {
+	//FFmpegÏñËØ¸ñÊ½Ó³Éäµ½libx264
+	if (avctx->bit_rate) {
         x4->params.rc.i_bitrate   = avctx->bit_rate / 1000;
         x4->params.rc.i_rc_method = X264_RC_ABR;
     }
@@ -546,6 +625,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     if (x4->chroma_offset >= 0)
         x4->params.analyse.i_chroma_qp_offset = x4->chroma_offset;
 
+    //°ÑAVCodecContextµÄÖµ£¨Ö÷ÒªÊÇ±àÂëÊ±ºòµÄÒ»Ğ©Í¨ÓÃÑ¡Ïî£©Ó³Éäµ½x264_param_t  
     if (avctx->gop_size >= 0)
         x4->params.i_keyint_max         = avctx->gop_size;
     if (avctx->max_b_frames >= 0)
@@ -715,6 +795,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 #if FF_API_MOTION_EST
 FF_DISABLE_DEPRECATION_WARNINGS
     } else {
+	    //FFmpegÔË¶¯¹À¼Æ·½·¨Ó³Éäµ½libx264  
         if (avctx->me_method == ME_EPZS)
             x4->params.analyse.i_me_method = X264_ME_DIA;
         else if (avctx->me_method == ME_HEX)
@@ -745,7 +826,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
             av_log(avctx, AV_LOG_INFO, "\n");
             return AVERROR(EINVAL);
         }
-
+		
+	//¿í¸ß£¬Ö¡ÂÊµÈ	
     x4->params.i_width          = avctx->width;
     x4->params.i_height         = avctx->height;
     av_reduce(&sw, &sh, avctx->sample_aspect_ratio.num, avctx->sample_aspect_ratio.den, 4096);
@@ -820,10 +902,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     avctx->bit_rate = x4->params.rc.i_bitrate*1000;
 
+    //ÉèÖÃÍê²ÎÊıºó£¬´ò¿ª±àÂëÆ÷  
     x4->enc = x264_encoder_open(&x4->params);
     if (!x4->enc)
         return AVERROR_EXTERNAL;
 
+    //Èç¹ûĞèÒªÈ«¾ÖÍ·  
     if (avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER) {
         x264_nal_t *nal;
         uint8_t *p;
@@ -1043,7 +1127,12 @@ static const AVClass x264_class = {
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
-
+/*
+libx264¶ÔÓ¦µÄAVCodec½á¹¹Ìåff_libx264_encoderÖĞÉè¶¨±àÂëÆ÷
+³õÊ¼»¯º¯ÊıÊÇX264_init()£¬
+±àÂëÒ»Ö¡Êı¾İµÄº¯ÊıÊÇX264_frame()£¬
+±àÂëÆ÷¹Ø±Õº¯ÊıÊÇX264_close()¡£
+*/
 AVCodec ff_libx264_encoder = {
     .name             = "libx264",
     .long_name        = NULL_IF_CONFIG_SMALL("libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"),

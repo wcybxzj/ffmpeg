@@ -234,6 +234,8 @@ static int decode_registered_user_data(H264SEIContext *h, GetBitContext *gb,
     return 0;
 }
 
+//decode_unregistered_user_data()的定义如下所示。从代码可以看出该函数只是简单的提取了X264的版本信息。
+//x264的编码参数信息一般都会存储在USER_DATA_UNREGISTERED  
 static int decode_unregistered_user_data(H264SEIUnregistered *h, GetBitContext *gb,
                                          void *logctx, int size)
 {
@@ -249,6 +251,9 @@ static int decode_unregistered_user_data(H264SEIUnregistered *h, GetBitContext *
 
     for (i = 0; i < size + 16; i++)
         user_data[i] = get_bits(gb, 8);
+    //user_data内容示例：x264 core 118  
+    //int sscanf(const char *buffer,const char *format,[argument ]...);  
+    //sscanf会从buffer里读进数据，依照format的格式将数据写入到argument里。  
 
     user_data[i] = 0;
     e = sscanf(user_data + 16, "x264 - core %d", &build);
@@ -382,6 +387,25 @@ static int decode_green_metadata(H264SEIGreenMetaData *h, GetBitContext *gb)
     return 0;
 }
 
+/*
+在《H.264官方标准》中，SEI的种类是非常多的。在ff_h264_decode_sei()中包含以下种类的SEI：
+SEI_TYPE_BUFFERING_PERIOD
+SEI_TYPE_PIC_TIMING
+SEI_TYPE_USER_DATA_ITU_T_T35
+SEI_TYPE_USER_DATA_UNREGISTERED
+SEI_TYPE_RECOVERY_POINT
+SEI_TYPE_FRAME_PACKING
+SEI_TYPE_DISPLAY_ORIENTATION
+其中的大部分种类的SEI信息我并没有接触过。
+唯一接触比较多的就是SEI_TYPE_USER_DATA_UNREGISTERED类型的信息了。
+使用X264编码视频的时候，会自动将配置信息以SEI_TYPE_USER_DATA_UNREGISTERED（用户数据未注册SEI）的形式写入码流。
+从ff_h264_decode_sei()的定义可以看出，该函数根据不同的SEI类型调用不同的解析函数。
+当SEI类型为SEI_TYPE_USER_DATA_UNREGISTERED的时候，就会调用decode_unregistered_user_data()函数。
+*/
+
+//ff_h264_decode_sei()用于解析H.264码流中的SEI
+//SEI补充增强信息单元  
+
 int ff_h264_sei_decode(H264SEIContext *h, GetBitContext *gb,
                        const H264ParamSets *ps, void *logctx)
 {
@@ -419,6 +443,8 @@ int ff_h264_sei_decode(H264SEIContext *h, GetBitContext *gb,
         case SEI_TYPE_USER_DATA_REGISTERED:
             ret = decode_registered_user_data(h, gb, logctx, size);
             break;
+        //x264的编码参数信息一般都会存储在USER_DATA_UNREGISTERED  
+        //其他种类的SEI见得很少  
         case SEI_TYPE_USER_DATA_UNREGISTERED:
             ret = decode_unregistered_user_data(&h->unregistered, gb, logctx, size);
             break;

@@ -64,6 +64,7 @@
 #include "h264addpx_template.c"
 #undef BIT_DEPTH
 
+//初始化DSP相关的函数。包含了IDCT、环路滤波函数等。
 av_cold void ff_h264dsp_init(H264DSPContext *c, const int bit_depth,
                              const int chroma_format_idc)
 {

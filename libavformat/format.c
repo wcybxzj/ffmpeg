@@ -57,7 +57,12 @@ AVOutputFormat *av_oformat_next(const AVOutputFormat *f)
     else
         return first_oformat;
 }
-
+/*
+从代码中可以看出，avdevice_register_all()调用3个函数进行设备组建的注册：REGISTER_INDEV()，REGISTER_OUTDEV()，REGISTER_INOUTDEV()。上述3个函数实际上是预定义的3个宏：
+REGISTER_INDEV()：注册输入设备。实际上调用了av_register_input_format()将输入设备注册成一个AVInputFormat。
+REGISTER_OUTDEV()：注册输出设备。实际上调用了av_register_output_format()将输出设备注册成一个AVOutputFormat。
+REGISTER_INOUTDEV()：注册输入设备和输出设备。实际上将上述两个宏定义合并了。
+*/
 //遍历链表并把当前的Input Format加到链表的尾部。
 void av_register_input_format(AVInputFormat *format)
 {

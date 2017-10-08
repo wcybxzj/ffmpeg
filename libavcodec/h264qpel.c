@@ -45,7 +45,7 @@
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
 
-
+//初始化四分之一像素运动补偿相关的函数。
 av_cold void ff_h264qpel_init(H264QpelContext *c, int bit_depth)
 {
 #undef FUNCC

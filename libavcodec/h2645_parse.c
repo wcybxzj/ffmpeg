@@ -29,6 +29,12 @@
 #include "hevc.h"
 #include "h2645_parse.h"
 
+/*
+ff_h264_decode_nal()首先从NALU Header（NALU第1个字节）中解析出了nal_ref_idc，nal_unit_type字段的值。
+然后函数进入了一个for()循环进行起始码检测。
+起始码检测这里稍微有点复杂，其中包含了一个STARTCODE_TEST的宏。
+这个宏用于做具体的起始码的判断。这部分的代码还没有细看，以后有时间再进行补充。
+*/
 int ff_h2645_extract_rbsp(const uint8_t *src, int length,
                           H2645NAL *nal, int small_padding)
 {
@@ -37,10 +43,20 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
     int64_t padding = small_padding ? 0 : MAX_MBPAIR_SIZE;
 
     nal->skipped_bytes = 0;
+
+//起始码:0x000001  
+//保留:0x000002  
+//防止竞争:0x000003  
+//既表示NALU的开始，又表示NALU的结束  
+//STARTCODE_TEST这个宏在后面用到  
+//得到length  
+//length是指当前NALU单元长度，这里不包括nalu头信息长度（即1个字节） 
+	
 #define STARTCODE_TEST                                                  \
         if (i + 2 < length && src[i + 1] == 0 && src[i + 2] <= 3) {     \
             if (src[i + 2] != 3 && src[i + 2] != 0) {                   \
                 /* startcode, so we must be past the end */             \
+                /* 取值为1或者2（保留用），为起始码。startcode, so we must be past the end */\  
                 length = i;                                             \
             }                                                           \
             break;                                                      \
@@ -78,6 +94,8 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
             continue;
         if (i > 0 && src[i - 1] == 0)
             i--;
+		
+        //起始码检测  
         STARTCODE_TEST;
     }
 #endif /* HAVE_FAST_UNALIGNED */

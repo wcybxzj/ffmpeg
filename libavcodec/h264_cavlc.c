@@ -699,6 +699,7 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
     }
 }
 
+//CAVLC½âÂëº¯ÊýÊÇff_h264_decode_mb_cavlc()
 int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
 {
     int mb_xy;

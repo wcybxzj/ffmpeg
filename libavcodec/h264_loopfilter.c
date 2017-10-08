@@ -232,7 +232,13 @@ static av_always_inline void filter_mb_edgech(uint8_t *pix, int stride,
         h->h264dsp.h264_v_loop_filter_chroma_intra(pix, stride, alpha, beta);
     }
 }
-
+/*
+h264_filter_mb_fast_internal()中又调用了下面几个函数进行滤波：
+filter_mb_edgeh()：亮度水平滤波
+filter_mb_edgev()：亮度垂直滤波
+filter_mb_edgech()：色度水平滤波
+filter_mb_edgecv()：色度垂直滤波
+*/
 static av_always_inline void h264_filter_mb_fast_internal(const H264Context *h,
                                                           H264SliceContext *sl,
                                                           int mb_x, int mb_y,
@@ -415,6 +421,7 @@ static av_always_inline void h264_filter_mb_fast_internal(const H264Context *h,
     }
 }
 
+//ff_h264_filter_mb_fast()中又调用了h264_filter_mb_fast_internal()。
 void ff_h264_filter_mb_fast(const H264Context *h, H264SliceContext *sl,
                             int mb_x, int mb_y, uint8_t *img_y,
                             uint8_t *img_cb, uint8_t *img_cr,

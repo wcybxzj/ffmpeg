@@ -64,6 +64,30 @@ typedef struct H264ParseContext {
     int last_frame_num, last_picture_structure;
 } H264ParseContext;
 
+//查找NALU的结尾。
+/*
+h264_find_frame_end()用于查找H.264码流中的“起始码”（start code）。
+在H.264码流中有两种起始码：0x000001和0x00000001。其中4Byte的长度的起始码最为常见。
+只有当一个完整的帧被编为多个slice的时候，包含这些slice的NALU才会使用3Byte的起始码。
+*/
+
+/*
+//查找帧结尾（帧开始）位置  
+//  
+//几种状态state：  
+//2 - 找到1个0  
+//1 - 找到2个0  
+//0 - 找到大于等于3个0  
+//4 - 找到2个0和1个1，即001（即找到了起始码）  
+//5 - 找到至少3个0和1个1，即0001等等（即找到了起始码）  
+//7 - 初始化状态  
+//>=8 - 找到2个Slice Header  
+//  
+//关于起始码startcode的两种形式：3字节的0x000001和4字节的0x00000001  
+//3字节的0x000001只有一种场合下使用，就是一个完整的帧被编为多个slice的时候，  
+//包含这些slice的nalu使用3字节起始码。其余场合都是4字节的。  
+//  
+*/
 
 static int h264_find_frame_end(H264ParseContext *p, const uint8_t *buf,
                                int buf_size, void *logctx)
@@ -81,7 +105,23 @@ static int h264_find_frame_end(H264ParseContext *p, const uint8_t *buf,
     if (p->is_avc && !p->nal_length_size)
         av_log(logctx, AV_LOG_ERROR, "AVC-parser: nal length size invalid\n");
 
-    for (i = 0; i < buf_size; i++) {
+    //  
+    //每次循环前进1个字节，读取该字节的值  
+    //根据此前的状态state做不同的处理  
+    //state取值为4,5代表找到了起始码  
+    //类似于一个状态机，简单画一下状态转移图：  
+    //                            +-----+  
+    //                            |     |  
+    //                            v     |  
+    // 7--(0)-->2--(0)-->1--(0)-->0-(0)-+  
+    // ^        |        |        |  
+    // |       (1)      (1)      (1)  
+    // |        |        |        |  
+    // +--------+        v        v  
+    //                   4        5  
+    // 
+	for (i = 0; i < buf_size; i++) {
+        //超过了  
         if (i >= next_avc) {
             int nalsize = 0;
             i = next_avc;
@@ -96,29 +136,40 @@ static int h264_find_frame_end(H264ParseContext *p, const uint8_t *buf,
         }
 
         if (state == 7) {
+			//查找startcode的候选者？  
+			//从一段内存中查找取值为0的元素的位置并返回  
+			//增加i取值  
             i += p->h264dsp.startcode_find_candidate(buf + i, next_avc - i);
+            //因为找到1个0，状态转换为2  
             if (i < next_avc)
                 state = 2;
-        } else if (state <= 2) {
-            if (buf[i] == 1)
-                state ^= 5;            // 2->7, 1->4, 0->5
+        } else if (state <= 2) { //找到0时候的state。包括1个0（状态2），2个0（状态1），或者3个及3个以上0（状态0）。  
+            if (buf[i] == 1) //发现了一个1  
+                state ^= 5;  //状态转换关系：2->7, 1->4, 0->5。状态4代表找到了001，状态5代表找到了0001  // 2->7, 1->4, 0->5
             else if (buf[i])
-                state = 7;
+                state = 7; //恢复初始  
             else
                 state >>= 1;           // 2->1, 1->0, 0->0
         } else if (state <= 5) {
+			//状态4代表找到了001，状态5代表找到了0001  
+			//获取NALU类型  
+			//NALU Header（1Byte）的后5bit  
             int nalu_type = buf[i] & 0x1F;
             if (nalu_type == H264_NAL_SEI || nalu_type == H264_NAL_SPS ||
                 nalu_type == H264_NAL_PPS || nalu_type == H264_NAL_AUD) {
-                if (pc->frame_start_found) {
+                //SPS，PPS，SEI类型的NALU  
+                if (pc->frame_start_found) {  //如果之前已找到了帧头
                     i++;
                     goto found;
                 }
             } else if (nalu_type == H264_NAL_SLICE || nalu_type == H264_NAL_DPA ||
                        nalu_type == H264_NAL_IDR_SLICE) {
+               //表示有slice header的NALU  
+			   //大于等于8的状态表示找到了两个帧头，但没有找到帧尾的状态  
                 state += 8;
                 continue;
             }
+            //上述两个条件都不满足，回归初始状态（state取值7）  
             state = 7;
         } else {
             p->parse_history[p->parse_history_count++] = buf[i];
@@ -142,6 +193,7 @@ static int h264_find_frame_end(H264ParseContext *p, const uint8_t *buf,
     pc->state = state;
     if (p->is_avc)
         return next_avc;
+    //没找到  
     return END_NOT_FOUND;
 
 found:
@@ -149,6 +201,11 @@ found:
     pc->frame_start_found = 0;
     if (p->is_avc)
         return next_avc;
+	
+    //state=4时候，state & 5=4  
+    //找到的是001（长度为3），i减小3+1=4，标识帧结尾  
+    //state=5时候，state & 5=5  
+    //找到的是0001（长度为4），i减小4+1=5，标识帧结尾  
     return i - (state & 5) - 5 * (state > 7);
 }
 
@@ -238,6 +295,23 @@ static int scan_mmco_reset(AVCodecParserContext *s, GetBitContext *gb,
  * @param buf buffer with field/frame data.
  * @param buf_size size of the buffer.
  */
+/*
+parse_nal_units()用于解析NALU，从SPS、PPS、SEI等中获得一些基本信息。
+在该函数中，根据NALU的不同，分别调用不同的函数进行具体的处理。
+
+parse_nal_units()主要做了以下几步处理：
+（1）对于所有的NALU，都调用ff_h264_decode_nal解析NALU的Header，得到nal_unit_type等信息
+（2）根据nal_unit_type的不同，调用不同的解析函数进行处理。例如：
+	a)解析SPS的时候调用ff_h264_decode_seq_parameter_set()
+	b)解析PPS的时候调用ff_h264_decode_picture_parameter_set()
+	c)解析SEI的时候调用ff_h264_decode_sei()
+	d)解析IDR Slice / Slice的时候，获取slice_type等一些信息。
+
+
+可以看出该部分代码提取了根据NALU Header、Slice Header中的信息赋值了一些字段，
+比如说AVCodecParserContext中的key_frame、pict_type，H264Context中的sps、pps、frame_num等等。
+*/
+
 static inline int parse_nal_units(AVCodecParserContext *s,
                                   AVCodecContext *avctx,
                                   const uint8_t * const buf, int buf_size)
@@ -287,6 +361,12 @@ static inline int parse_nal_units(AVCodecParserContext *s,
         switch (state & 0x1f) {
         case H264_NAL_SLICE:
         case H264_NAL_IDR_SLICE:
+			/*
+			解析Slice Header
+			对于包含图像压缩编码的Slice，解析器（Parser）并不进行解码处理，
+			而是简单提取一些Slice Header中的信息。该部分的代码并没有写成一个函数，
+			而是直接写到了parse_nal_units()里面，截取出来如下所示。
+			*/
             // Do not walk the whole buffer just to decode slice header
             if ((state & 0x1f) == H264_NAL_IDR_SLICE || ((state >> 5) & 0x3) == 0) {
                 /* IDR or disposable slice
@@ -300,12 +380,17 @@ static inline int parse_nal_units(AVCodecParserContext *s,
             }
             break;
         }
+		
+        //解析NAL Header，获得nal_unit_type等信息  
         consumed = ff_h2645_extract_rbsp(buf + buf_index, src_length, &nal, 1);
         if (consumed < 0)
             break;
 
         buf_index += consumed;
 
+        //初始化GetBitContext  
+        //H264Context->gb  
+        //后面的解析都是从这里获取数据  
         ret = init_get_bits8(&nal.gb, nal.data, nal.size);
         if (ret < 0)
             goto fail;
@@ -315,16 +400,21 @@ static inline int parse_nal_units(AVCodecParserContext *s,
 
         switch (nal.type) {
         case H264_NAL_SPS:
+            //解析SPS  
             ff_h264_decode_seq_parameter_set(&nal.gb, avctx, &p->ps, 0);
             break;
         case H264_NAL_PPS:
+            //解析PPS  
             ff_h264_decode_picture_parameter_set(&nal.gb, avctx, &p->ps,
                                                  nal.size_bits);
             break;
         case H264_NAL_SEI:
+            //解析SEI  
             ff_h264_sei_decode(&p->sei, &nal.gb, &p->ps, avctx);
             break;
         case H264_NAL_IDR_SLICE:
+            //如果是IDR Slice  
+            //赋值AVCodecParserContext的key_frame为1  
             s->key_frame = 1;
 
             p->poc.prev_frame_num        = 0;
@@ -333,13 +423,20 @@ static inline int parse_nal_units(AVCodecParserContext *s,
             p->poc.prev_poc_lsb          = 0;
         /* fall through */
         case H264_NAL_SLICE:
+            //获取Slice的一些信息  
+            //跳过first_mb_in_slice这一字段  
             get_ue_golomb_long(&nal.gb);  // skip first_mb_in_slice
+            //获取帧类型（I,B,P）  
             slice_type   = get_ue_golomb_31(&nal.gb);
+            //赋值到AVCodecParserContext的pict_type（外部可以访问到）  
             s->pict_type = ff_h264_golomb_to_pict_type[slice_type % 5];
+            //关键帧  
             if (p->sei.recovery_point.recovery_frame_cnt >= 0) {
                 /* key frame, since recovery_frame_cnt is set */
+                //赋值AVCodecParserContext的key_frame为1  
                 s->key_frame = 1;
             }
+            //获取 PPS ID  
             pps_id = get_ue_golomb(&nal.gb);
             if (pps_id >= MAX_PPS_COUNT) {
                 av_log(avctx, AV_LOG_ERROR,
@@ -409,6 +506,8 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                 s->format = AV_PIX_FMT_NONE;
             }
 
+            //获得“型”和“级”  
+            //赋值到AVCodecContext的profile和level  
             avctx->profile = ff_h264_get_profile(sps);
             avctx->level   = sps->level_idc;
 
@@ -470,8 +569,9 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                         p->picture_structure == PICT_BOTTOM_FIELD ? 0 : field_poc[0];
                 }
             }
-
-            if (sps->pic_struct_present_flag && p->sei.picture_timing.present) {
+			
+            //包含“场”概念的时候，先不管  
+			if (sps->pic_struct_present_flag && p->sei.picture_timing.present) {
                 switch (p->sei.picture_timing.pic_struct) {
                 case SEI_PIC_STRUCT_TOP_FIELD:
                 case SEI_PIC_STRUCT_BOTTOM_FIELD:
@@ -559,6 +659,26 @@ fail:
     return -1;
 }
 
+/*
+h264_parse()逐层调用的和解析Slice相关的函数：
+h264_find_frame_end()：查找NALU的结尾。
+parse_nal_units()：解析一个NALU。
+*/
+
+//解析H.264码流  
+//输出一个完整的NAL，存储于poutbuf中  
+
+/*
+h264_parse()主要完成了以下3步工作：
+（1）如果是第一次解析，则首先调用ff_h264_decode_extradata()解析AVCodecContext的extradata
+	（里面实际上存储了H.264的SPS、PPS）。
+（2）如果传入的flags 中包含PARSER_FLAG_COMPLETE_FRAMES，则说明传入的是完整的一帧数据，
+	不作任何处理；如果不包含PARSER_FLAG_COMPLETE_FRAMES，
+	则说明传入的不是完整的一帧数据而是任意一段H.264数据，
+	则需要调用h264_find_frame_end()通过查找“起始码”（0x00000001或者0x000001）的方法，
+	分离出完整的一帧数据。
+（3）调用parse_nal_units()完成了NALU的解析工作。
+*/
 static int h264_parse(AVCodecParserContext *s,
                       AVCodecContext *avctx,
                       const uint8_t **poutbuf, int *poutbuf_size,
@@ -567,21 +687,28 @@ static int h264_parse(AVCodecParserContext *s,
     H264ParseContext *p = s->priv_data;
     ParseContext *pc = &p->pc;
     int next;
-
+	
+    //如果还没有解析过1帧，就调用这里解析extradata  
     if (!p->got_first) {
         p->got_first = 1;
         if (avctx->extradata_size) {
+            //解析AVCodecContext的extradata  
             ff_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
                                      &p->ps, &p->is_avc, &p->nal_length_size,
                                      avctx->err_recognition, avctx);
         }
     }
-
-    if (s->flags & PARSER_FLAG_COMPLETE_FRAMES) {
+	
+    //输入的数据是完整的一帧？  
+    //这里通过设置flags的PARSER_FLAG_COMPLETE_FRAMES来确定  
+	 if (s->flags & PARSER_FLAG_COMPLETE_FRAMES) {
+        //和缓存大小一样  
         next = buf_size;
     } else {
+		//查找帧结尾（帧开始）位置	
+		//以“起始码”为依据（0x000001或0x00000001）  
         next = h264_find_frame_end(p, buf, buf_size, avctx);
-
+        //组帧  
         if (ff_combine_frame(pc, next, &buf, &buf_size) < 0) {
             *poutbuf      = NULL;
             *poutbuf_size = 0;
@@ -593,7 +720,9 @@ static int h264_parse(AVCodecParserContext *s,
             h264_find_frame_end(p, &pc->buffer[pc->last_index + next], -next, avctx); // update state
         }
     }
-
+	
+    //解析NALU，从SPS、PPS、SEI等中获得一些基本信息。  
+    //此时buf中存储的是完整的1帧数据  
     parse_nal_units(s, avctx, buf, buf_size);
 
     if (avctx->framerate.num)
@@ -633,6 +762,7 @@ static int h264_parse(AVCodecParserContext *s,
     }
 
     *poutbuf      = buf;
+    //分割后的帧数据输出至poutbuf  
     *poutbuf_size = buf_size;
     return next;
 }
@@ -685,6 +815,7 @@ static void h264_close(AVCodecParserContext *s)
     ff_h264_ps_uninit(&p->ps);
 }
 
+//初始化H.264解析器。
 static av_cold int init(AVCodecParserContext *s)
 {
     H264ParseContext *p = s->priv_data;
@@ -695,6 +826,7 @@ static av_cold int init(AVCodecParserContext *s)
     return 0;
 }
 
+//ff_h264_parser：用于解析H.264码流的AVCodecParser结构体。
 AVCodecParser ff_h264_parser = {
     .codec_ids      = { AV_CODEC_ID_H264 },
     .priv_data_size = sizeof(H264ParseContext),

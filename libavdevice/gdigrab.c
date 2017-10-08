@@ -34,6 +34,7 @@
 #include "libavutil/time.h"
 #include <windows.h>
 
+//Gdigrab上下文结构体中存储了GDIGrab设备用到的各种变量
 /**
  * GDI Device Demuxer context
  */
@@ -212,6 +213,21 @@ gdigrab_region_wnd_update(AVFormatContext *s1, struct gdigrab *gdigrab)
     }
 }
 
+/*
+gdigrab_read_header()用于初始化gdigrab
+
+源代码可以看出，gdigrab_read_header()的流程大致如下所示：
+（1）确定窗口的句柄hwnd。如果指定了“title=”的话，调用FindWindow()获取hwnd；如果指定了“desktop”，则设定hwnd为NULL。
+（2）根据窗口的句柄hwnd确定抓屏的矩形区域。如果抓取指定窗口，则通过GetClientRect()函数；否则就抓取整个屏幕。
+（3）调用GDI的API完成抓屏的一些初始化工作。包括：
+a)通过GetDC()获得某个窗口句柄的HDC（在这里是source_hdc）。
+b)通过CreateCompatibleDC()创建一个与指定设备兼容的HDC（在这里是dest_hdc）
+c)通过CreateDIBSection()创建HBITMAP
+d)通过SelectObject()绑定HBITMAP和HDC（指的是dest_hdc）
+（4）通过avformat_new_stream()创建一个AVStream。
+（5）将初始化时候的一些参数保存至GDIGrab的上下文结构体。
+*/
+
 /**
  * Initializes the gdi grab device demuxer (public device demuxer API).
  *
@@ -222,7 +238,7 @@ static int
 gdigrab_read_header(AVFormatContext *s1)
 {
     struct gdigrab *gdigrab = s1->priv_data;
-
+    //窗口句柄  
     HWND hwnd;
     HDC source_hdc = NULL;
     HDC dest_hdc   = NULL;
@@ -238,12 +254,15 @@ gdigrab_read_header(AVFormatContext *s1)
     int vertres;
     int desktopvertres;
     RECT virtual_rect;
+    //窗口的位置和大小  
     RECT clip_rect;
     BITMAP bmp;
     int ret;
 
+    //filename为窗口名称  
     if (!strncmp(filename, "title=", 6)) {
         name = filename + 6;
+        //查找窗口的句柄  
         hwnd = FindWindow(NULL, name);
         if (!hwnd) {
             av_log(s1, AV_LOG_ERROR,
@@ -256,7 +275,9 @@ gdigrab_read_header(AVFormatContext *s1)
                     "Can't show region when grabbing a window.\n");
             gdigrab->show_region = 0;
         }
+    //filename为desktop  
     } else if (!strcmp(filename, "desktop")) {
+		//窗口句柄为NULL  
         hwnd = NULL;
     } else {
         av_log(s1, AV_LOG_ERROR,
@@ -278,6 +299,7 @@ gdigrab_read_header(AVFormatContext *s1)
     if (hwnd) {
         GetClientRect(hwnd, &virtual_rect);
     } else {
+        //窗口句柄为NULL，代表是全屏  
         /* desktop -- get the right height and width for scaling DPI */
         vertres = GetDeviceCaps(source_hdc, VERTRES);
         desktopvertres = GetDeviceCaps(source_hdc, DESKTOPVERTRES);
@@ -336,7 +358,7 @@ gdigrab_read_header(AVFormatContext *s1)
         ret = AVERROR(EIO);
         goto error;
     }
-
+    //创建一个与指定设备兼容的HDC  
     dest_hdc = CreateCompatibleDC(source_hdc);
     if (!dest_hdc) {
         WIN32_API_ERROR("Screen DC CreateCompatibleDC");
@@ -373,11 +395,14 @@ gdigrab_read_header(AVFormatContext *s1)
     /* Get info from the bitmap */
     GetObject(hbmp, sizeof(BITMAP), &bmp);
 
+	//创建AVStream  
     st = avformat_new_stream(s1, NULL);
     if (!st) {
         ret = AVERROR(ENOMEM);
         goto error;
     }
+	
+    //保存信息到GDIGrab上下文结构体  
     avpriv_set_pts_info(st, 64, 1, 1000000); /* 64 bits pts in us */
 
     gdigrab->frame_size  = bmp.bmWidthBytes * bmp.bmHeight * bmp.bmPlanes;
@@ -514,6 +539,18 @@ icon_error:
  * @param pkt Packet holding the grabbed frame
  * @return frame size in bytes
  */
+/*
+ gdigrab_read_packet()用于读取一帧抓屏数据
+（1）从GDIGrab上下文结构体读取初始化时候设定的参数。
+（2）根据帧率参数进行延时。
+（3）通过av_new_packet()新建一个AVPacket。
+（4）通过BitBlt()完成抓屏功能。
+（5）如果需要画鼠标指针的话，调用paint_mouse_pointer()，这里不做分析。
+（6）按照顺序拷贝以下3项内容至AVPacket的data指向的内存：
+a)BITMAPFILEHEADER
+b)BITMAPINFOHEADER
+c)抓屏的到的像素数据
+*/
 static int gdigrab_read_packet(AVFormatContext *s1, AVPacket *pkt)
 {
     struct gdigrab *gdigrab = s1->priv_data;
@@ -553,11 +590,13 @@ static int gdigrab_read_packet(AVFormatContext *s1, AVPacket *pkt)
         }
     }
 
+    //新建一个AVPacket  
     if (av_new_packet(pkt, file_size) < 0)
         return AVERROR(ENOMEM);
     pkt->pts = curtime;
 
     /* Blit screen grab */
+    //关键：BitBlt()完成抓屏功能  
     if (!BitBlt(dest_hdc, 0, 0,
                 clip_rect.right - clip_rect.left,
                 clip_rect.bottom - clip_rect.top,
@@ -566,25 +605,30 @@ static int gdigrab_read_packet(AVFormatContext *s1, AVPacket *pkt)
         WIN32_API_ERROR("Failed to capture image");
         return AVERROR(EIO);
     }
+    //画鼠标指针？  
     if (gdigrab->draw_mouse)
         paint_mouse_pointer(s1, gdigrab);
 
     /* Copy bits to packet data */
-
+    //BMP文件头BITMAPFILEHEADER  
     bfh.bfType = 0x4d42; /* "BM" in little-endian */
     bfh.bfSize = file_size;
     bfh.bfReserved1 = 0;
     bfh.bfReserved2 = 0;
     bfh.bfOffBits = gdigrab->header_size;
-
+	
+    //往AVPacket中拷贝数据  
+    //拷贝BITMAPFILEHEADER  
     memcpy(pkt->data, &bfh, sizeof(bfh));
 
+	//拷贝BITMAPINFOHEADER  
     memcpy(pkt->data + sizeof(bfh), &gdigrab->bmi.bmiHeader, sizeof(gdigrab->bmi.bmiHeader));
 
     if (gdigrab->bmi.bmiHeader.biBitCount <= 8)
         GetDIBColorTable(dest_hdc, 0, 1 << gdigrab->bmi.bmiHeader.biBitCount,
                 (RGBQUAD *) (pkt->data + sizeof(bfh) + sizeof(gdigrab->bmi.bmiHeader)));
-
+	
+    //拷贝像素数据  
     memcpy(pkt->data + gdigrab->header_size, gdigrab->buffer, gdigrab->frame_size);
 
     gdigrab->time_frame = time_frame;
@@ -617,6 +661,16 @@ static int gdigrab_read_close(AVFormatContext *s1)
     return 0;
 }
 
+/*
+options数组中包含了该Device支持的选项。可以看出GDIGrab支持如下选项：
+draw_mouse：画出鼠标指针。
+show_region：划出抓屏区域的边界。
+framerate：抓屏帧率。
+video_size：抓屏的大小。
+offset_x：抓屏起始点x轴坐标。
+offset_y：抓屏起始点y轴坐标。
+从宏定义“#define OFFSET(x) offsetof(struct gdigrab, x)”中可以看出，这些选项都存储在一个名称为“gdigrab”的结构体中。
+*/
 #define OFFSET(x) offsetof(struct gdigrab, x)
 #define DEC AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
@@ -629,12 +683,29 @@ static const AVOption options[] = {
     { NULL },
 };
 
+//从gdigrab_class的定义可以看出，它指定了一个名称为“options”的数组作为它的选项数组（赋值给AVClass的option变量）。
 static const AVClass gdigrab_class = {
     .class_name = "GDIgrab indev",
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
+/*
+
+ff_gdigrab_demuxer
+在FFmpeg中Device也被当做是一种Format，因为GDIGrab是一个输入设备，因此被当作一个AVInputFormat。GDIGrab对应的AVInputFormat结构体如下所示。
+从该结构体可以看出：
+设备名称是“gdigrab”；
+设备完整名称是“GDI API Windows frame grabber”；
+初始化函数指针read_header()指向gdigrab_read_header()；
+读取数据函数指针read_packet()指向gdigrab_read_packet()；
+关闭函数指针read_close()指向gdigrab_read_close()；
+Flags设置为AVFMT_NOFILE；
+AVClass指定为gdigrab_class。
+
+gdigrab_class
+ff_gdigrab_demuxer指定它的AVClass为一个名称为“gdigrab_class”的静态变量。
+*/
 
 /** gdi grabber device demuxer declaration */
 AVInputFormat ff_gdigrab_demuxer = {

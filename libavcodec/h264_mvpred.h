@@ -92,6 +92,7 @@ static av_always_inline int fetch_diagonal_mv(const H264Context *h, H264SliceCon
  * @param mx the x component of the predicted motion vector
  * @param my the y component of the predicted motion vector
  */
+ //数获取运动矢量相关的信息。
 static av_always_inline void pred_motion(const H264Context *const h,
                                          H264SliceContext *sl,
                                          int n,

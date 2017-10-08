@@ -28,6 +28,25 @@
 #include "startcode.h"
 #include "config.h"
 
+
+/*
+startcode_find_candidate()
+其中，在查找数据中第1个“0”的时候，使用了H264DSPContext结构体中的startcode_find_candidate()函数。
+startcode_find_candidate()除了包含C语言版本的函数外，
+还包含了ARMV6等平台下经过汇编优化的函数（估计效率会比C语言版本函数高一些）。
+C语言版本的函数ff_startcode_find_candidate_c()的定义很简单，位于libavcodec\startcode.c，如下所示。
+
+int ff_startcode_find_candidate_c(const uint8_t *buf, int size)  
+{  
+    int i = 0;  
+    for (; i < size; i++)  
+        if (!buf[i])  
+            break;  
+    return i;  
+}  
+
+
+*/
 int ff_startcode_find_candidate_c(const uint8_t *buf, int size)
 {
     int i = 0;
