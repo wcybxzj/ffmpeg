@@ -353,6 +353,37 @@ zeromv:
     fill_rectangle(sl->mv_cache[0][scan8[0]], 4, 4, 8, 0, 4);
     return;
 }
+/*
+填充当前宏块左边和上边宏块的信息
+在宏块预测的时候需要用到当前宏块左边、上左、上边，上右位置的宏块有关的信息。
+因此在预测前需要先填充这些信息。
+H.264解码器中调用了fill_decode_neighbors()和fill_decode_caches()两个函数填充这些信息。
+fill_decode_caches()函数我目前还没有仔细看，在这里简单分析一下fill_decode_neighbors()函数
+
+
+
+*/
+
+
+/* 
+fill_decode_neighbors()用于设置当前宏块左边、上左、上边，上右位置的宏块的索引值和宏块类型
+设置上左，上，上右，左宏块的索引值和宏块类型 
+这4个宏块在解码过程中会用到 
+
+位置如下图所示 
+ +----+----+----+ 
+| UL |  U | UR | 
++----+----+----+ 
+| L  |    | 
++----+----+ 
+
+从源代码中可以看出，fill_decode_neighbors()设置了下面几个索引值：
+topleft_mb_xy，top_mb_xy，topright_mb_xy，left_mb_xy[LTOP]和left_mb_xy[LBOT]
+设置了下面几个宏块的类型：
+topleft_type，top_type，topright_type，left_type[LTOP]，left_type[LBOT]
+需要注意的是，在逐行扫面的情况下left_xy[LTOP]和left_xy[LBOT]是相等的。
+
+*/  
 
 static void fill_decode_neighbors(const H264Context *h, H264SliceContext *sl, int mb_type)
 {
@@ -367,13 +398,17 @@ static void fill_decode_neighbors(const H264Context *h, H264SliceContext *sl, in
 
     sl->topleft_partition = -1;
 
+    //上方宏块。当前宏块减去一行  
+    //top_xy=mb_xy-mb_stride  
     top_xy = mb_xy - (h->mb_stride << MB_FIELD(sl));
 
     /* Wow, what a mess, why didn't they simplify the interlacing & intra
      * stuff, I can't imagine that these complex rules are worth it. */
-
+	//上左宏块。上方宏块减1  
     topleft_xy    = top_xy - 1;
+    //上右宏块。上方宏块加1  
     topright_xy   = top_xy + 1;
+    //左边宏块。当前宏块减1  
     left_xy[LBOT] = left_xy[LTOP] = mb_xy - 1;
     sl->left_block = left_block_options[0];
     if (FRAME_MBAFF(h)) {
@@ -410,13 +445,19 @@ static void fill_decode_neighbors(const H264Context *h, H264SliceContext *sl, in
         }
     }
 
+    //宏块索引值  
+    //上左  
     sl->topleft_mb_xy    = topleft_xy;
+    //上  
     sl->top_mb_xy        = top_xy;
-    sl->topright_mb_xy   = topright_xy;
+    //上右  
+    sl->topright_mb_xy   = topright_xy;	
+    //左。逐行扫描时候left_xy[LTOP]==left_xy[LBOT]  
     sl->left_mb_xy[LTOP] = left_xy[LTOP];
     sl->left_mb_xy[LBOT] = left_xy[LBOT];
     //FIXME do we need all in the context?
 
+    //宏块类型  
     sl->topleft_type    = h->cur_pic.mb_type[topleft_xy];
     sl->top_type        = h->cur_pic.mb_type[top_xy];
     sl->topright_type   = h->cur_pic.mb_type[topright_xy];

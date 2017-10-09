@@ -2489,6 +2489,41 @@ static void er_add_slice(H264SliceContext *sl,
         ff_er_add_slice(er, startx, starty, endx, endy, status);
     }
 }
+//解码slice  
+//三个主要步骤：  
+//1.熵解码（CAVLC/CABAC）  
+//2.宏块解码  
+//3.环路滤波  
+//此外还包含了错误隐藏代码  
+
+//decode_slice()完成了熵解码，宏块解码，环路滤波，错误隐藏等解码的细节工作
+
+/*
+decode_slice()按照宏块（16x16）的方式处理输入的视频流。每个宏块的压缩数据经过以下3个基本步骤的处理，得到解码后的数据：
+（1）熵解码。如果熵编码为CABAC，则调用ff_h264_decode_mb_cabac()；
+			如果熵编码为CAVLC，则调用ff_h264_decode_mb_cavlc()
+（2）宏块解码。这一步骤调用ff_h264_hl_decode_mb()
+（3）环路滤波。这一步骤调用loop_filter()
+此外，还有可能调用错误隐藏函数er_add_slice()。
+*/
+/*
+
+
+可以看出decode_slice()的的流程如下：
+（1）判断H.264码流是CABAC编码还是CAVLC编码，进入不同的处理循环。
+（2）如果是CABAC编码，首先调用ff_init_cabac_decoder()初始化CABAC解码器。
+	然后进入一个循环，依次对每个宏块进行以下处理：
+	a)调用ff_h264_decode_mb_cabac()进行CABAC熵解码
+	b)调用ff_h264_hl_decode_mb()进行宏块解码
+	c)解码一行宏块之后调用loop_filter()进行环路滤波
+	d)此外还有可能调用er_add_slice()进行错误隐藏处理
+（3）如果是CAVLC编码，直接进入一个循环，依次对每个宏块进行以下处理：
+	a)调用ff_h264_decode_mb_cavlc()进行CAVLC熵解码
+	b)调用ff_h264_hl_decode_mb()进行宏块解码
+	c)解码一行宏块之后调用loop_filter()进行环路滤波
+	d)此外还有可能调用er_add_slice()进行错误隐藏处理
+可以看出，出了熵解码以外，宏块解码和环路滤波的函数是一样的。
+*/
 
 static int decode_slice(struct AVCodecContext *avctx, void *arg)
 {
@@ -2524,22 +2559,27 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                 h->slice_ctx[0].er.error_occurred = 1;
         }
     }
-
+	
+    //CABAC情况  
     if (h->ps.pps->cabac) {
         /* realign */
         align_get_bits(&sl->gb);
 
         /* init cabac */
+        //初始化CABAC解码器  
         ret = ff_init_cabac_decoder(&sl->cabac,
                               sl->gb.buffer + get_bits_count(&sl->gb) / 8,
                               (get_bits_left(&sl->gb) + 7) / 8);
         if (ret < 0)
             return ret;
 
+		//CABAC  
         ff_h264_init_cabac_states(h, sl);
 
-        for (;;) {
+        //循环处理每个宏块  
+       for (;;) {
             // START_TIMER
+            //解码CABAC数据  
             int ret, eos;
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
                 av_log(h->avctx, AV_LOG_ERROR, "Slice overlaps with next at %d\n",
@@ -2551,16 +2591,17 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             ret = ff_h264_decode_mb_cabac(h, sl);
             // STOP_TIMER("decode_mb_cabac")
-
+            //解码宏块  
             if (ret >= 0)
                 ff_h264_hl_decode_mb(h, sl);
 
             // FIXME optimal? or let mb_decode decode 16x32 ?
+            //宏块级帧场自适应。很少接触  
             if (ret >= 0 && FRAME_MBAFF(h)) {
                 sl->mb_y++;
 
                 ret = ff_h264_decode_mb_cabac(h, sl);
-
+                //解码宏块  
                 if (ret >= 0)
                     ff_h264_hl_decode_mb(h, sl);
                 sl->mb_y--;
@@ -2569,6 +2610,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
             if ((h->workaround_bugs & FF_BUG_TRUNCATED) &&
                 sl->cabac.bytestream > sl->cabac.bytestream_end + 2) {
+                //错误隐藏  
                 er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y, sl->mb_x - 1,
                              sl->mb_y, ER_MB_END);
                 if (sl->mb_x >= lf_x_start)
@@ -2586,19 +2628,23 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                              sl->mb_y, ER_MB_ERROR);
                 return AVERROR_INVALIDDATA;
             }
-
+            //mb_x自增  
+            //如果自增后超过了一行的mb个数  
             if (++sl->mb_x >= h->mb_width) {
+                //环路滤波  
                 loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
+                //mb_y自增（处理下一行）  
                 ++sl->mb_y;
+                //宏块级帧场自适应，暂不考虑  
                 if (FIELD_OR_MBAFF_PICTURE(h)) {
                     ++sl->mb_y;
                     if (FRAME_MBAFF(h) && sl->mb_y < h->mb_height)
                         predict_field_decoding_flag(h, sl);
                 }
             }
-
+            //如果mb_y超过了mb的行数  
             if (eos || sl->mb_y >= h->mb_height) {
                 ff_tlog(h->avctx, "slice end %d %d\n",
                         get_bits_count(&sl->gb), sl->gb.size_in_bits);
@@ -2610,7 +2656,9 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
         }
     } else {
-        for (;;) {
+        //CAVLC情况  
+        //循环处理每个宏块  
+		for (;;) {
             int ret;
 
             if (sl->mb_x + sl->mb_y * h->mb_width >= sl->next_slice_idx) {
@@ -2620,9 +2668,10 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
                              sl->mb_y, ER_MB_ERROR);
                 return AVERROR_INVALIDDATA;
             }
-
+            //解码宏块的CAVLC  
             ret = ff_h264_decode_mb_cavlc(h, sl);
 
+            //解码宏块  
             if (ret >= 0)
                 ff_h264_hl_decode_mb(h, sl);
 
@@ -2645,6 +2694,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
             }
 
             if (++sl->mb_x >= h->mb_width) {
+                //环路滤波  
                 loop_filter(h, sl, lf_x_start, sl->mb_x);
                 sl->mb_x = lf_x_start = 0;
                 decode_finish_row(h, sl);
@@ -2665,6 +2715,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
 
                         goto finish;
                     } else {
+    					//错误隐藏	
                         er_add_slice(sl, sl->resync_mb_x, sl->resync_mb_y,
                                      sl->mb_x, sl->mb_y, ER_MB_END);
 
@@ -2704,6 +2755,16 @@ finish:
  *
  * @param h h264 master context
  */
+ 
+//真正的解码 
+/*
+ff_h264_execute_decode_slices()用于解码获取图像信息
+
+ff_h264_execute_decode_slices()调用了decode_slice()函数。
+在decode_slice()函数中完成了熵解码，宏块解码，环路滤波，错误隐藏等解码的细节工作。
+由于decode_slice()的内容比较多，本文暂不详细分析该函数
+
+*/
 int ff_h264_execute_decode_slices(H264Context *h)
 {
     AVCodecContext *const avctx = h->avctx;
@@ -2723,6 +2784,7 @@ int ff_h264_execute_decode_slices(H264Context *h)
 
     av_assert0(context_count && h->slice_ctx[context_count - 1].mb_y < h->mb_height);
 
+    //context_count的数量  
     if (context_count == 1) {
 
         h->slice_ctx[0].next_slice_idx = h->mb_width * h->mb_height;

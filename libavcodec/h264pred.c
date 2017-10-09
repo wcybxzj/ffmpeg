@@ -51,6 +51,19 @@
 #include "h264pred_template.c"
 #undef BIT_DEPTH
 
+//4x4帧内Vertical模式的预测。
+//垂直预测  
+//由上边像素推出像素值  
+/* 
+ * Vertical预测方式 
+ *	 |X1 X2 X3 X4 
+ * --+----------- 
+ *	 |X1 X2 X3 X4 
+ *	 |X1 X2 X3 X4 
+ *	 |X1 X2 X3 X4 
+ *	 |X1 X2 X3 X4 
+ * 
+ */ 
 static void pred4x4_vertical_vp8_c(uint8_t *src, const uint8_t *topright,
                                    ptrdiff_t stride)
 {
@@ -408,7 +421,29 @@ static void pred8x8_tm_vp8_c(uint8_t *src, ptrdiff_t stride)
 /**
  * Set the intra prediction function pointers.
  */
- //初始化帧内预测相关的函数。
+/*
+H264_PRED(8)
+H264_PRED(8)用于初始化8bit颜色位深C语言版本的帧内预测的函数。
+该宏定义展开后的结果如下所示。
+if(codec_id != AV_CODEC_ID_RV40){  
+    if (codec_id == AV_CODEC_ID_VP7 || codec_id == AV_CODEC_ID_VP8) {  
+        h->pred4x4[0       ]= pred4x4_vertical_vp8_c;  
+        h->pred4x4[1        ]= pred4x4_horizontal_vp8_c;  
+    } else {  
+        //帧内4x4的Vertical预测方式  
+        h->pred4x4[0       ]= pred4x4_vertical_8_c;  
+        //帧内4x4的Horizontal预测方式  
+        h->pred4x4[1        ]= pred4x4_horizontal_8_c;  
+    }  
+    //帧内4x4的DC预测方式  
+    h->pred4x4[2             ]= pred4x4_dc_8_c;  
+
+	略过..........
+}
+*/
+
+
+//初始化帧内预测相关的函数。
 av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
                                const int bit_depth,
                                int chroma_format_idc)
@@ -418,16 +453,21 @@ av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
 #define FUNC(a, depth) a ## _ ## depth
 #define FUNCC(a, depth) a ## _ ## depth ## _c
 #define FUNCD(a) a ## _c
-
+//好长的宏定义...（这种很长的宏定义在H.264解码器中似乎很普遍！）  
+//该宏用于给帧内预测模块的函数指针赋值  
+//注意参数为颜色位深度  
 #define H264_PRED(depth) \
     if(codec_id != AV_CODEC_ID_RV40){\
         if (codec_id == AV_CODEC_ID_VP7 || codec_id == AV_CODEC_ID_VP8) {\
             h->pred4x4[VERT_PRED       ]= FUNCD(pred4x4_vertical_vp8);\
             h->pred4x4[HOR_PRED        ]= FUNCD(pred4x4_horizontal_vp8);\
         } else {\
+            //帧内4x4的Vertical预测方式  
             h->pred4x4[VERT_PRED       ]= FUNCC(pred4x4_vertical          , depth);\
-            h->pred4x4[HOR_PRED        ]= FUNCC(pred4x4_horizontal        , depth);\
+			//帧内4x4的Horizontal预测方式  
+			h->pred4x4[HOR_PRED        ]= FUNCC(pred4x4_horizontal        , depth);\
         }\
+		//帧内4x4的DC预测方式  
         h->pred4x4[DC_PRED             ]= FUNCC(pred4x4_dc                , depth);\
         if(codec_id == AV_CODEC_ID_SVQ3)\
             h->pred4x4[DIAG_DOWN_LEFT_PRED ]= FUNCD(pred4x4_down_left_svq3);\
@@ -574,6 +614,9 @@ av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
     h->pred16x16_add[VERT_PRED8x8]= FUNCC(pred16x16_vertical_add          , depth);\
     h->pred16x16_add[ HOR_PRED8x8]= FUNCC(pred16x16_horizontal_add        , depth);\
 
+	//注意这里使用了前面那个很长的宏定义  
+	//根据颜色位深的不同，初始化不同的函数	
+	//颜色位深默认值为8，所以一般情况下调用H264_PRED(8)  
     switch (bit_depth) {
         case 9:
             H264_PRED(9)
@@ -592,7 +635,7 @@ av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
             H264_PRED(8)
             break;
     }
-
+    //如果支持汇编优化，则会调用相应的汇编优化函数  
     if (ARCH_AARCH64)
         ff_h264_pred_init_aarch64(h, codec_id, bit_depth, chroma_format_idc);
     if (ARCH_ARM)

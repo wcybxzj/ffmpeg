@@ -63,37 +63,66 @@ const uint8_t ff_h264_chroma422_dc_scan[8] = {
     (1 + 2 * 2) * 16, (1 + 3 * 2) * 16,
 };
 
+//I宏块的mb_type  
+/* 
+ * 规律： 
+ * pred_mode总是Vertical->Horizontal->DC->Plane(记住帧内预测中Vertical排在第0个) 
+ * cbp:传送数据量越来越大(前半部分不传亮度残差) 
+ * 按照数据量排序 
+ * 
+ * 只有Intra_16x16宏块类型，CBP的值不是由句法元素给出，而是通过mb_type得到。 
+ * 
+ * CBP(Coded Block Pattern) 
+ * 色度CBP含义： 
+ * 0:不传残差 
+ * 1:只传DC 
+ * 2:传送DC+AC 
+ * 亮度CBP(只有最低4位有定义)含义： 
+ * 变量的最低位比特从最低位开始，每一位对应一个子宏块，
+ 该位等于1 时表明对应子宏块残差系数被传送；
+ 该位等于0 时表明对应子宏块残差全部不被传送，解码器把这些残差系数赋为0。 
+ */  
 const IMbInfo ff_h264_i_mb_type_info[26] = {
-    { MB_TYPE_INTRA4x4,  -1,  -1 },
-    { MB_TYPE_INTRA16x16, 2,   0 },
+    { MB_TYPE_INTRA4x4,  -1,  -1 },//pred_mode还需要单独获取  
+    { MB_TYPE_INTRA16x16, 2,   0 },//cbp:0000+0
     { MB_TYPE_INTRA16x16, 1,   0 },
     { MB_TYPE_INTRA16x16, 0,   0 },
     { MB_TYPE_INTRA16x16, 3,   0 },
-    { MB_TYPE_INTRA16x16, 2,  16 },
+    { MB_TYPE_INTRA16x16, 2,  16 },//cbp:0000+1<<4  
     { MB_TYPE_INTRA16x16, 1,  16 },
     { MB_TYPE_INTRA16x16, 0,  16 },
     { MB_TYPE_INTRA16x16, 3,  16 },
-    { MB_TYPE_INTRA16x16, 2,  32 },
+    { MB_TYPE_INTRA16x16, 2,  32 },//cbp:0000+2<<4
     { MB_TYPE_INTRA16x16, 1,  32 },
     { MB_TYPE_INTRA16x16, 0,  32 },
     { MB_TYPE_INTRA16x16, 3,  32 },
-    { MB_TYPE_INTRA16x16, 2,  15 +  0 },
+    { MB_TYPE_INTRA16x16, 2,  15 +  0 },//cbp:1111+0<<4
     { MB_TYPE_INTRA16x16, 1,  15 +  0 },
     { MB_TYPE_INTRA16x16, 0,  15 +  0 },
     { MB_TYPE_INTRA16x16, 3,  15 +  0 },
-    { MB_TYPE_INTRA16x16, 2,  15 + 16 },
+    { MB_TYPE_INTRA16x16, 2,  15 + 16 },//cbp:1111+1<<4  
     { MB_TYPE_INTRA16x16, 1,  15 + 16 },
     { MB_TYPE_INTRA16x16, 0,  15 + 16 },
     { MB_TYPE_INTRA16x16, 3,  15 + 16 },
-    { MB_TYPE_INTRA16x16, 2,  15 + 32 },
+    { MB_TYPE_INTRA16x16, 2,  15 + 32 },//cbp:1111+2<<4  
     { MB_TYPE_INTRA16x16, 1,  15 + 32 },
     { MB_TYPE_INTRA16x16, 0,  15 + 32 },
     { MB_TYPE_INTRA16x16, 3,  15 + 32 },
-    { MB_TYPE_INTRA_PCM,  -1, -1 },
+    { MB_TYPE_INTRA_PCM,  -1, -1 },//特殊  
 };
 
+//p_mb_type_info[]存储了P宏块的类型
+//P宏块的mb_type  
+/* 
+ * 规律： 
+ * 宏块划分尺寸从大到小（子宏块数量逐渐增多） 
+ * 先是“胖”（16x8）的，再是“瘦”（8x16）的 
+ * MB_TYPE_PXL0中的“X”代表宏块的第几个分区，只能取0或者1 
+ * MB_TYPE_P0LX中的“X”代表宏块参考的哪个List。P宏块只能参考list0 
+ * 
+ */  
 const PMbInfo ff_h264_p_mb_type_info[5] = {
-    { MB_TYPE_16x16 | MB_TYPE_P0L0,                               1 },
+    { MB_TYPE_16x16 | MB_TYPE_P0L0,                               1 },//没有“P1”
     { MB_TYPE_16x8  | MB_TYPE_P0L0 | MB_TYPE_P1L0,                2 },
     { MB_TYPE_8x16  | MB_TYPE_P0L0 | MB_TYPE_P1L0,                2 },
     { MB_TYPE_8x8   | MB_TYPE_P0L0 | MB_TYPE_P1L0,                4 },
@@ -107,16 +136,36 @@ const PMbInfo ff_h264_p_sub_mb_type_info[4] = {
     { MB_TYPE_8x8   | MB_TYPE_P0L0, 4 },
 };
 
+
+/*
+b_mb_type_info[]
+b_mb_type_info[]存储了B宏块的类型。其中的元素为PMbInfo类型的结构体。
+在这里需要注意，p_mb_type_info[]和b_mb_type_info[]中的元素的类型是一样的，都是PMbInfo类型的结构体。
+b_mb_type_info[]的定义如下。
+*/
+
+//B宏块的mb_type  
+/* 
+ * 规律： 
+ * 宏块划分尺寸从大到小（子宏块数量逐渐增多） 
+ * 先是“胖”（16x8）的，再是“瘦”（8x16）的 
+ * 每个分区参考的list越来越多（意见越来越不一致了） 
+ * 
+ * MB_TYPE_PXL0中的“X”代表宏块的第几个分区，只能取0或者1 
+ * MB_TYPE_P0LX中的“X”代表宏块参考的哪个List。B宏块参考list0和list1 
+ * 
+ */  
+
 const PMbInfo ff_h264_b_mb_type_info[23] = {
     { MB_TYPE_DIRECT2 | MB_TYPE_L0L1,                                              1, },
-    { MB_TYPE_16x16   | MB_TYPE_P0L0,                                              1, },
+    { MB_TYPE_16x16   | MB_TYPE_P0L0,                                              1, },//没有“P1”  
     { MB_TYPE_16x16   | MB_TYPE_P0L1,                                              1, },
     { MB_TYPE_16x16   | MB_TYPE_P0L0 | MB_TYPE_P0L1,                               1, },
-    { MB_TYPE_16x8    | MB_TYPE_P0L0 | MB_TYPE_P1L0,                               2, },
+    { MB_TYPE_16x8    | MB_TYPE_P0L0 | MB_TYPE_P1L0,                               2, },//两个分区（每个分区两个参考帧）都参考list0  
     { MB_TYPE_8x16    | MB_TYPE_P0L0 | MB_TYPE_P1L0,                               2, },
-    { MB_TYPE_16x8    | MB_TYPE_P0L1 | MB_TYPE_P1L1,                               2, },
+    { MB_TYPE_16x8    | MB_TYPE_P0L1 | MB_TYPE_P1L1,                               2, },//两个分区（每个分区两个参考帧）都参考list1 
     { MB_TYPE_8x16    | MB_TYPE_P0L1 | MB_TYPE_P1L1,                               2, },
-    { MB_TYPE_16x8    | MB_TYPE_P0L0 | MB_TYPE_P1L1,                               2, },
+    { MB_TYPE_16x8    | MB_TYPE_P0L0 | MB_TYPE_P1L1,                               2, },//0分区（两个参考帧）参考list0,1分区（两个参考帧）参考list1
     { MB_TYPE_8x16    | MB_TYPE_P0L0 | MB_TYPE_P1L1,                               2, },
     { MB_TYPE_16x8    | MB_TYPE_P0L1 | MB_TYPE_P1L0,                               2, },
     { MB_TYPE_8x16    | MB_TYPE_P0L1 | MB_TYPE_P1L0,                               2, },

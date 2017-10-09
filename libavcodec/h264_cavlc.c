@@ -324,6 +324,8 @@ static av_cold void init_cavlc_level_tab(void){
     }
 }
 
+//初始化熵解码器  
+//CAVLC  
 av_cold void ff_h264_decode_init_vlc(void){
     static int done = 0;
 
@@ -700,21 +702,84 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
 }
 
 //CAVLC解码函数是ff_h264_decode_mb_cavlc()
+/*
+ff_h264_decode_mb_cavlc()调用了很多的读取指数哥伦布编码数据的函数，
+如get_ue_golomb_long()，get_ue_golomb()，get_se_golomb()，get_ue_golomb_31()等。
+
+ff_h264_decode_mb_cavlc()在解码残差数据的时候，调用了decode_residual()函数，
+
+decode_residual()会调用get_vlc2()函数读取CAVLC编码数据。
+*/
+/*
+“熵解码”部分的作用就是按照H.264语法和语义的规定，
+读取数据（宏块类型、运动矢量、参考帧、残差等）并且赋值到FFmpeg H.264解码器中相应的变量上。
+需要注意的是，“熵解码”部分并不使用这些变量还原视频数据。
+还原视频数据的功能在下一步“宏块解码”步骤中完成。
+*/
+
+/*
+* 解码宏块的CAVLC数据 
+* 解码Slice Data（注意不包含Slice Header） 
+*/
+
+/*
+mb_type
+mb_type是宏块的类型的索引。FFmpeg H.264解码器中使用i_mb_type_info[]存储了I宏块的类型信息；
+使用p_mb_type_info[]存储了P宏块的类型信息；使用b_mb_type_info[]存储了B宏块的类型信息。
+使用“X_mb_type_info[mb_type]”的方式（“X”可以取“i”、“p”、“b”）可以获得该类型宏块的信息。
+
+例如获得B宏块的分块数可以使用下面这句代码。
+int partition_count= b_mb_type_info[mb_type].partition_count; 
+=================================================================================================
+i_mb_type_info[]
+i_mb_type_info[]存储了I宏块的类型
+
+
+
+
+*/
+
+/*
+下面先简单梳理一下它的流程：
+（1）解析Skip类型宏块
+（2）获取mb_type
+（3）填充当前宏块左边和上边宏块的信息（后面的预测中会用到）
+（4）根据mb_type的不同，分成三种情况进行预测工作：
+	a)宏块是帧内预测
+		i.如果宏块是Intra4x4类型，则需要单独解析帧内预测模式。
+		ii.如果宏块是Intra16x16类型，则不再做过多处理。
+	b)宏块划分为4个块（此时每个8x8的块可以再次划分为4种类型）
+	这个时候每个8x8的块可以再次划分为8x8、8x4、4x8、4x4几种子块。需要分别处理这些小的子块：
+		i.解析子块的参考帧序号
+		ii.解析子块的运动矢量
+	c)其它类型（包括16x16，16x8，8x16几种划分，这些划分不可再次划分）
+	这个时候需要判断宏块的类型为16x16，16x8还是8x16，然后作如下处理：
+		i.解析子宏块的参考帧序号
+		ii.解析子宏块的运动矢量
+（5）解码残差信息
+（6）将宏块的各种信息输出到整个图片相应的变量中
+*/
 int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
 {
     int mb_xy;
     int partition_count;
     unsigned int mb_type, cbp;
     int dct8x8_allowed= h->ps.pps->transform_8x8_mode;
+    //如果是YUV420或者YUV422，需要处理色度（YUV444中的UV直接当亮度处理）  
     int decode_chroma = h->ps.sps->chroma_format_idc == 1 || h->ps.sps->chroma_format_idc == 2;
     const int pixel_shift = h->pixel_shift;
-
+    //mb_xy的计算方法  
     mb_xy = sl->mb_xy = sl->mb_x + sl->mb_y*h->mb_stride;
 
     ff_tlog(h->avctx, "pic:%d mb:%d/%d\n", h->poc.frame_num, sl->mb_x, sl->mb_y);
     cbp = 0; /* avoid warning. FIXME: find a solution without slowing
                 down the code */
+					
+	//slice_type_nos意思是SI/SP 被映射为 I/P （即没有SI/SP这种帧）	
+	//处理Skip宏块-不携带任何数据  
+	//解码器通过周围已重建的宏块的数据来恢复skip块	
     if (sl->slice_type_nos != AV_PICTURE_TYPE_I) {
+        //熵编码为CAVLC时候特有的字段  
         if (sl->mb_skip_run == -1)
             sl->mb_skip_run = get_ue_golomb_long(&sl->gb);
 
@@ -733,9 +798,17 @@ int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
     }
 
     sl->prev_mb_skipped = 0;
-
-    mb_type= get_ue_golomb(&sl->gb);
+	
+    //获取宏块类型（I,B,P）  
+    //I片中只允许出现I宏块  
+    //P片中即可以出现P宏块也可以出现I宏块  
+    //B片中即可以出现B宏块也可以出现I宏块  
+    //这个语义含义比较复杂，需要查表  
+	mb_type= get_ue_golomb(&sl->gb);
     if (sl->slice_type_nos == AV_PICTURE_TYPE_B) {
+        //b_mb_type_info存储了B宏块的类型  
+        //type代表宏块类型  
+        //partition_count代表宏块分区数目  
         if(mb_type < 23){
             partition_count = ff_h264_b_mb_type_info[mb_type].partition_count;
             mb_type         = ff_h264_b_mb_type_info[mb_type].type;
@@ -744,6 +817,9 @@ int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
             goto decode_intra_mb;
         }
     } else if (sl->slice_type_nos == AV_PICTURE_TYPE_P) {
+		//p_mb_type_info存储了P宏块的类型  
+		//type代表宏块类型	
+		//partition_count代表宏块分区数目（一般为1，2，4）	
         if(mb_type < 5){
             partition_count = ff_h264_p_mb_type_info[mb_type].partition_count;
             mb_type         = ff_h264_p_mb_type_info[mb_type].type;
@@ -752,6 +828,14 @@ int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
             goto decode_intra_mb;
         }
     }else{
+        //i_mb_type_info存储了I宏块的类型  
+        //注意i_mb_type_info和p_mb_type_info、b_mb_type_info是不一样的：  
+        //type：宏块类型。只有MB_TYPE_INTRA4x4，MB_TYPE_INTRA16x16（基本上都是这种），MB_TYPE_INTRA_PCM三种  
+        //pred_mode：帧内预测方式（四种：DC，Horizontal，Vertical，Plane）。  
+        //cbp：指亮度和色度分量的各小块的残差的编码方案，所谓编码方案有以下几种：  
+        //      0) 所有残差（包括 DC、AC）都不编码。  
+        //      1) 只对 DC 系数编码。  
+        //      2) 所有残差（包括 DC、AC）都编码。  
        av_assert2(sl->slice_type_nos == AV_PICTURE_TYPE_I);
         if (sl->slice_type == AV_PICTURE_TYPE_SI && mb_type)
             mb_type--;
@@ -765,12 +849,13 @@ decode_intra_mb:
         sl->intra16x16_pred_mode = ff_h264_i_mb_type_info[mb_type].pred_mode;
         mb_type                  = ff_h264_i_mb_type_info[mb_type].type;
     }
-
+    //隔行  
     if (MB_FIELD(sl))
         mb_type |= MB_TYPE_INTERLACED;
 
     h->slice_table[mb_xy] = sl->slice_num;
 
+    //I_PCM不常见  
     if(IS_INTRA_PCM(mb_type)){
         const int mb_size = ff_h264_mb_sizes[h->ps.sps->chroma_format_idc] *
                             h->ps.sps->bit_depth_luma;
@@ -788,30 +873,108 @@ decode_intra_mb:
         // All coeffs are present
         memset(h->non_zero_count[mb_xy], 16, 48);
 
+		//赋值  
         h->cur_pic.mb_type[mb_xy] = mb_type;
         return 0;
     }
 
+	/* 设置上左，上，上右，左宏块的索引值和宏块类型 
+     * 这4个宏块在解码过程中会用到 
+     * 位置如下图所示 
+     * 
+     * +----+----+----+ 
+     * | UL |  U | UR | 
+     * +----+----+----+ 
+     * | L  |    | 
+     * +----+----+ 
+     */ 
+
     fill_decode_neighbors(h, sl, mb_type);
+    //填充Cache  
     fill_decode_caches(h, sl, mb_type);
 
+    /* 
+     * 
+     * 关于多次出现的scan8 
+     * 
+     * scan8[]是一个表格。表格中存储了一整个宏块的信息，每一个元素代表了一个“4x4块”（H.264中最小的处理单位）。 
+     * scan8[]中的“8”，意思应该是按照8x8为单元来扫描？ 
+     * 因此可以理解为“按照8x8为单元来扫描4x4的块”？ 
+     * 
+     * scan8中按照顺序分别存储了Y，U，V的索引值。具体的存储还是在相应的cache中。 
+     * 
+     * PS：“4x4”貌似是H.264解码器中最小的“块”单位 
+     * 
+     * cache中首先存储Y，然后存储U和V。cache中的存储方式如下所示。 
+     * 其中数字代表了scan8[]中元素的索引值 
+     * scan8[]中元素的值则代表了其代表的变量在cache中的索引值 
+     * +---+---+---+---+---+---+---+---+---+ 
+     * |   | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 
+     * +---+---+---+---+---+---+---+---+---+ 
+     * | 0 | 48|   |   |   |  y|  y|  y|  y| 
+     * | 1 |   |   |   |  y|  0|  1|  4|  5| 
+     * | 2 |   |   |   |  y|  2|  3|  6|  7| 
+     * | 3 |   |   |   |  y|  8|  9| 12| 13| 
+     * | 4 |   |   |   |  y| 10| 11| 14| 15| 
+     * | 5 | 49|   |   |   |  u|  u|  u|  u| 
+     * | 6 |   |   |   |  u| 16| 17| 20| 21| 
+     * | 7 |   |   |   |  u| 18| 19| 22| 23| 
+     * | 8 |   |   |   |  u| 24| 25| 28| 29| 
+     * | 9 |   |   |   |  u| 26| 27| 30| 31| 
+     * |10 | 50|   |   |   |  v|  v|  v|  v| 
+     * |11 |   |   |   |  v| 32| 33| 36| 37| 
+     * |12 |   |   |   |  v| 34| 35| 38| 39| 
+     * |13 |   |   |   |  v| 40| 41| 44| 45| 
+     * |14 |   |   |   |  v| 42| 43| 46| 47| 
+     * |---+---+---+---+---+---+---+---+---+ 
+     * |   | 
+     * 
+     */
+
+
     //mb_pred
+	//分成3种情况进行预测工作：  
+	//1.帧内预测  
+	//2.划分为4个块（此时每个8x8的块可以再次划分为4种类型）  
+	//3.其他类型（包括16x16,16x8,8x16，这些划分不可再次划分）  
     if(IS_INTRA(mb_type)){
+        //情况1：帧内宏块  
         int pred_mode;
 //            init_top_left_availability(h);
+        //如果是帧内4x4，帧内预测方式需要特殊处理（9种）  
         if(IS_INTRA4x4(mb_type)){
             int i;
             int di = 1;
+            //先不考虑这种相对特殊情况，di=1  
             if(dct8x8_allowed && get_bits1(&sl->gb)){
                 mb_type |= MB_TYPE_8x8DCT;
                 di = 4;
             }
 
 //                fill_intra4x4_pred_table(h);
-            for(i=0; i<16; i+=di){
+            //对于一个宏块（16x16）来说，包含了4*4=16个4x4帧内预测的块  
+            //所以循环16次  
+            /* 
+             * 帧内预测：16x16 宏块被划分为16个4x4子块 
+             * 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * 
+             */  
+			for(i=0; i<16; i+=di){
+                //获得对Intra4x4的预测模式的预测值（挺绕口，确实是这样）  
+                //这个预测模式由左边和上边块的预测模式（取最小值）推导主来  
                 int mode = pred_intra_mode(h, sl, i);
-
+                //这1bit是dcPredModePredictedFlag，如果为1，则直接使用推导出来的预测模式  
                 if(!get_bits1(&sl->gb)){
+                    //否则就使用读取出来的预测模式  
                     const int rem_mode= get_bits(&sl->gb, 3);
                     mode = rem_mode + (rem_mode >= mode);
                 }
@@ -820,18 +983,34 @@ decode_intra_mb:
                     fill_rectangle(&sl->intra4x4_pred_mode_cache[ scan8[i] ], 2, 2, 8, mode, 1);
                 else
                     sl->intra4x4_pred_mode_cache[scan8[i]] = mode;
+					/* 
+					* 将mode填充至intra4x4_pred_mode_cache 
+					* 
+					* 用简单图形表示intra4x4_pred_mode_cache如下。数字代表填充顺序（一共填充16次） 
+					*   | 
+					* --+------------------- 
+					*   | 0 0 0 0  0  0  0  0 
+					*   | 0 0 0 0  1  2  5  6 
+					*   | 0 0 0 0  3  4  7  8 
+					*   | 0 0 0 0  9 10 13 14 
+					*   | 0 0 0 0 11 12 15 16 
+					* 
+					*/ 
             }
+	        //将宏块的Cache中的intra4x4_pred_mode拷贝至整张图片的intra4x4_pred_mode变量中  
             write_back_intra_pred_mode(h, sl);
             if (ff_h264_check_intra4x4_pred_mode(sl->intra4x4_pred_mode_cache, h->avctx,
                                                  sl->top_samples_available, sl->left_samples_available) < 0)
                 return -1;
         }else{
-            sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
+            //帧内16x16的检测：检查宏块上方和左边的数据是否可用
+			sl->intra16x16_pred_mode = ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
                                                                      sl->left_samples_available, sl->intra16x16_pred_mode, 0);
             if (sl->intra16x16_pred_mode < 0)
                 return -1;
         }
         if(decode_chroma){
+            //色度帧内预测的检测，和亮度一样  
             pred_mode= ff_h264_check_intra_pred_mode(h->avctx, sl->top_samples_available,
                                                      sl->left_samples_available, get_ue_golomb_31(&sl->gb), 1);
             if(pred_mode < 0)
@@ -841,10 +1020,33 @@ decode_intra_mb:
             sl->chroma_pred_mode = DC_128_PRED8x8;
         }
     }else if(partition_count==4){
-        int i, j, sub_partition_count[4], list, ref[2][4];
+		//情况2：宏块划分为4  
+		//为什么宏块划分为4的时候要单独处理？因为宏块划分为4的时候，每个8x8的子宏块还可以进一步划分为2个4x8，2个8x4（4x8），或者4个4x4。  
+		//而其他方式的宏块划分（例如16x16,16x8,8x16等）是不可以这样再次划分的  
+		/* 
+		* 16x16 宏块被划分为4个8x8子块 
+		* 
+		* +--------+--------+ 
+		* | 	    	  | 		   | 
+		* |   0    |   1	   | 
+		* | 	       |		   | 
+		* +--------+--------+ 
+		* | 	   	  |		   | 
+		* |   2    |   3	   | 
+		* | 	       |		   | 
+		* +--------+--------+ 
+		* 
+		*/	
 
+		int i, j, sub_partition_count[4], list, ref[2][4];
+        //获得8x8子块的宏块类型  
+        //后续的很多代码都是循环处理4个8x8子块  
+        //所以很多for()循环的次数都是为4  
         if (sl->slice_type_nos == AV_PICTURE_TYPE_B) {
+			//B宏块  
+			//4个子块  
             for(i=0; i<4; i++){
+                //子宏块的预测类型  
                 sl->sub_mb_type[i]= get_ue_golomb_31(&sl->gb);
                 if(sl->sub_mb_type[i] >=13){
                     av_log(h->avctx, AV_LOG_ERROR, "B sub_mb_type %u out of range at %d %d\n", sl->sub_mb_type[i], sl->mb_x, sl->mb_y);
@@ -862,20 +1064,28 @@ decode_intra_mb:
             }
         }else{
             av_assert2(sl->slice_type_nos == AV_PICTURE_TYPE_P); //FIXME SP correct ?
-            for(i=0; i<4; i++){
+            //P宏块  
+            //4个子块  
+			for(i=0; i<4; i++){
                 sl->sub_mb_type[i]= get_ue_golomb_31(&sl->gb);
                 if(sl->sub_mb_type[i] >=4){
                     av_log(h->avctx, AV_LOG_ERROR, "P sub_mb_type %u out of range at %d %d\n", sl->sub_mb_type[i], sl->mb_x, sl->mb_y);
                     return -1;
                 }
+				
+                //p_sub_mb_type_info存储了P子宏块的类型，和前面的p_mb_type_info类似  
+                //type代表宏块类型  
+                //partition_count代表宏块分区数目  
                 sub_partition_count[i] = ff_h264_p_sub_mb_type_info[sl->sub_mb_type[i]].partition_count;
                 sl->sub_mb_type[i]     = ff_h264_p_sub_mb_type_info[sl->sub_mb_type[i]].type;
             }
         }
-
+		
+        //8x8块的子宏块的参考帧序号  
         for (list = 0; list < sl->list_count; list++) {
             int ref_count = IS_REF0(mb_type) ? 1 : sl->ref_count[list] << MB_MBAFF(sl);
-            for(i=0; i<4; i++){
+            //4个子块  
+			for(i=0; i<4; i++){
                 if(IS_DIRECT(sl->sub_mb_type[i])) continue;
                 if(IS_DIR(sl->sub_mb_type[i], 0, list)){
                     unsigned int tmp;
@@ -884,12 +1094,14 @@ decode_intra_mb:
                     }else if(ref_count == 2){
                         tmp= get_bits1(&sl->gb)^1;
                     }else{
+    					//参考帧序号  
                         tmp= get_ue_golomb_31(&sl->gb);
                         if(tmp>=ref_count){
                             av_log(h->avctx, AV_LOG_ERROR, "ref %u overflow\n", tmp);
                             return -1;
                         }
                     }
+                    //存储  
                     ref[list][i]= tmp;
                 }else{
                  //FIXME
@@ -901,7 +1113,10 @@ decode_intra_mb:
         if(dct8x8_allowed)
             dct8x8_allowed = get_dct8x8_allowed(h, sl);
 
+        //8x8块的子宏块的运动矢量  
+        //依次处理L0和L1  
         for (list = 0; list < sl->list_count; list++) {
+            //4个子块  
             for(i=0; i<4; i++){
                 if(IS_DIRECT(sl->sub_mb_type[i])) {
                     sl->ref_cache[list][ scan8[4*i] ] = sl->ref_cache[list][ scan8[4*i]+1 ];
@@ -913,29 +1128,130 @@ decode_intra_mb:
                 if(IS_DIR(sl->sub_mb_type[i], 0, list)){
                     const int sub_mb_type= sl->sub_mb_type[i];
                     const int block_width= (sub_mb_type & (MB_TYPE_16x16|MB_TYPE_16x8)) ? 2 : 1;
+			        //8x8块的子块（可能是8x8,8x4,4x8,4x4）的运动矢量  
+                    //依次处理，数量为sub_partition_count  
                     for(j=0; j<sub_partition_count[i]; j++){
                         int mx, my;
+			            //scan8索引  
                         const int index= 4*i + block_width*j;
                         int16_t (* mv_cache)[2]= &sl->mv_cache[list][ scan8[index] ];
+			            //先获取“预测MV”（取中值），结果存入mx，my  
                         pred_motion(h, sl, index, block_width, list, sl->ref_cache[list][ scan8[index] ], &mx, &my);
-                        mx += get_se_golomb(&sl->gb);
+                        //获取MVD并且累加至“预测MV”  
+                        //MV=预测MV+MVD  
+						mx += get_se_golomb(&sl->gb);
                         my += get_se_golomb(&sl->gb);
                         ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
 
                         if(IS_SUB_8X8(sub_mb_type)){
+							//8x8子宏块的宏块划分方式为8x8（等同于没划分）  
+							//则把mv_cache中的4个块对应的值都赋值成一样的  
+							//即：[0]，[1]，[0+8]，[1+8]  
+							//PS：stride（代表一行元素个数）为8（即“+8”代表是下一行）  
+							/* 
+							 * +----+----+ 
+							 * |         | 
+							 * +    +    + 
+							 * |         | 
+							 * +----+----+ 
+							 * 
+							 */  
                             mv_cache[ 1 ][0]=
                             mv_cache[ 8 ][0]= mv_cache[ 9 ][0]= mx;
                             mv_cache[ 1 ][1]=
                             mv_cache[ 8 ][1]= mv_cache[ 9 ][1]= my;
                         }else if(IS_SUB_8X4(sub_mb_type)){
+                        
+						//如果是8x4子宏块  
+						//则把mv_cache中的横向的2个块对应的值都赋值成一样的  
+						//即：[0]，[1]	
+						/* 
+						 * +----+----+ 
+						 * |			| 
+						 * +----+----+ 
+						 * |		 	| 
+						 * +----+----+ 
+						 * 
+						 */  
                             mv_cache[ 1 ][0]= mx;
                             mv_cache[ 1 ][1]= my;
                         }else if(IS_SUB_4X8(sub_mb_type)){
+						//如果是4x8子宏块  
+						//则把mv_cache中纵向的2个块对应的值都赋值成一样的  
+						//即：[0]，[0+8]  
+						/* 
+                             * +----+----+ 
+                             * |    |    | 
+                             * +    +    + 
+                             * |    |    | 
+                             * +----+----+ 
+                             * 
+                             */  
                             mv_cache[ 8 ][0]= mx;
                             mv_cache[ 8 ][1]= my;
                         }
+
+						//赋值  
+                        //PS：如果是4x4子宏块划分的话，则不会触发上面的if else语句，即分别得到4个4x4块的运动矢量  
                         mv_cache[ 0 ][0]= mx;
                         mv_cache[ 0 ][1]= my;
+
+					  /* 
+                         * mv_cache赋值方式如下 
+                         * scan8[0]代表了cache里面亮度Y的起始点，取值12 
+                         * 如果全部都是4x4划分的话，mv_cache填充顺序即按照scan8中元素中的顺序： 
+                         * scan8[0],scan8[1],scan8[2],scan8[3],scan8[4],scan8[5]...... 
+                         * 即： 
+                         *  4 +  1 * 8, 5 +  1 * 8, 4 +  2 * 8, 5 +  2 * 8, 
+                         *  6 +  1 * 8, 7 +  1 * 8, 6 +  2 * 8, 7 +  2 * 8, 
+                         *  4 +  3 * 8, 5 +  3 * 8, 4 +  4 * 8, 5 +  4 * 8,...... 
+                         * 用简单图形表示mv_cache如下。数字代表填充顺序（一共填充16次） 
+                         *   | 
+                         * --+------------------- 
+                         *   | 0 0 0 0  0  0  0  0 
+                         *   | 0 0 0 0  1  2  5  6 
+                         *   | 0 0 0 0  3  4  7  8 
+                         *   | 0 0 0 0  9 10 13 14 
+                         *   | 0 0 0 0 11 12 15 16 
+                         * 
+                         *  如果全部是8x8划分的话，mv_cache填充顺序即按照scan8中元素中的顺序： 
+                         *  scan8[0],scan8[4],scan8[8],scan8[16]...... 
+                         *  填充后赋值3个元素 
+                         *  用简单图形表示mv_cache如下。数字代表填充顺序（一共填充4次） 
+                         *   | 
+                         * --+------------------- 
+                         *   | 0 0 0 0  0  0  0  0 
+                         *   | 0 0 0 0  1  1  2  2 
+                         *   | 0 0 0 0  1  1  2  2 
+                         *   | 0 0 0 0  3  3  4  4 
+                         *   | 0 0 0 0  3  3  4  4 
+                         * 
+                         *  如果全部是8x4划分的话，mv_cache填充顺序即按照scan8中元素中的顺序： 
+                         *  scan8[0],scan8[2],scan8[4],scan8[6]...... 
+                         *  填充后赋值右边1个元素 
+                         *  用简单图形表示mv_cache如下。数字代表填充顺序（一共填充8次） 
+                         *   | 
+                         * --+------------------- 
+                         *   | 0 0 0 0  0  0  0  0 
+                         *   | 0 0 0 0  1  1  3  3 
+                         *   | 0 0 0 0  2  2  4  4 
+                         *   | 0 0 0 0  5  5  7  7 
+                         *   | 0 0 0 0  6  6  8  8 
+                         * 
+                         *  如果全部是4x8划分的话，mv_cache填充顺序即按照scan8中元素中的顺序： 
+                         *  scan8[0],scan8[1],scan8[4],scan8[5],scan8[8],scan8[9]...... 
+                         *  填充后赋值下边1个元素 
+                         *  用简单图形表示mv_cache如下。数字代表填充顺序（一共填充8次） 
+                         *   | 
+                         * --+------------------- 
+                         *   | 0 0 0 0  0  0  0  0 
+                         *   | 0 0 0 0  1  2  3  4 
+                         *   | 0 0 0 0  1  2  3  4 
+                         *   | 0 0 0 0  5  6  7  8 
+                         *   | 0 0 0 0  5  6  7  8 
+                         * 
+                         *   其他划分的不同组合，可以参考上面的填充顺序 
+                         */ 
                     }
                 }else{
                     uint32_t *p= (uint32_t *)&sl->mv_cache[list][ scan8[4*i] ][0];
@@ -945,12 +1261,31 @@ decode_intra_mb:
             }
         }
     }else if(IS_DIRECT(mb_type)){
-        ff_h264_pred_direct_motion(h, sl, &mb_type);
+        //Direct模式  
+		ff_h264_pred_direct_motion(h, sl, &mb_type);
         dct8x8_allowed &= h->ps.sps->direct_8x8_inference_flag;
     }else{
+		//情况3：既不是帧内宏块（情况1），宏块划分数目也不为4（情况2）	
+		//这种情况下不存在8x8的子宏块再次划分这样的事情  
         int list, mx, my, i;
          //FIXME we should set ref_idx_l? to 0 if we use that later ...
         if(IS_16X16(mb_type)){
+			/* 
+             * 16x16 宏块 
+             * 
+             * +--------+--------+ 
+             * |                 | 
+             * |                 | 
+             * |                 | 
+             * +        +        + 
+             * |                 | 
+             * |                 | 
+             * |                 | 
+             * +--------+--------+ 
+             * 
+             */  
+            //运动矢量对应的参考帧  
+            //L0和L1 
             for (list = 0; list < sl->list_count; list++) {
                     unsigned int val;
                     if(IS_DIR(mb_type, 0, list)){
@@ -960,29 +1295,73 @@ decode_intra_mb:
                         } else if (rc == 2) {
                             val= get_bits1(&sl->gb)^1;
                         }else{
+    						//参考帧图像序号  
                             val= get_ue_golomb_31(&sl->gb);
                             if (val >= rc) {
                                 av_log(h->avctx, AV_LOG_ERROR, "ref %u overflow\n", val);
                                 return -1;
                             }
                         }
+						
+					//填充ref_cache  
+					//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+					//scan8[0]代表了cache里面亮度Y的起始点  
+					/* 
+					 * 在这里相当于在ref_cache[list]填充了这样的一份数据（val=v）： 
+					 *   | 
+					 * --+-------------- 
+					 *   | 0 0 0 0 0 0 0 0 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 */  
                     fill_rectangle(&sl->ref_cache[list][ scan8[0] ], 4, 4, 8, val, 1);
                     }
             }
-            for (list = 0; list < sl->list_count; list++) {
+            //运动矢量  
+			for (list = 0; list < sl->list_count; list++) {
                 if(IS_DIR(mb_type, 0, list)){
+                    //预测MV（取中值）  
                     pred_motion(h, sl, 0, 4, list, sl->ref_cache[list][ scan8[0] ], &mx, &my);
-                    mx += get_se_golomb(&sl->gb);
+                    //MVD从码流中获取  
+                    //MV=预测MV+MVD  
+					mx += get_se_golomb(&sl->gb);
                     my += get_se_golomb(&sl->gb);
                     ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
-
-                    fill_rectangle(sl->mv_cache[list][ scan8[0] ], 4, 4, 8, pack16to32(mx,my), 4);
+					//填充mv_cache  
+					//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+					//scan8[0]代表了cache里面亮度Y的起始点  
+					/* 
+					 * 在这里相当于在mv_cache[list]填充了这样的一份数据（val=v）： 
+					 *   | 
+					 * --+-------------- 
+					 *   | 0 0 0 0 0 0 0 0 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 *   | 0 0 0 0 v v v v 
+					 */ 
+					fill_rectangle(sl->mv_cache[list][ scan8[0] ], 4, 4, 8, pack16to32(mx,my), 4);
                 }
             }
         }
-        else if(IS_16X8(mb_type)){
+        else if(IS_16X8(mb_type)){//16x8  
+			/* 
+             * 16x8 宏块划分 
+             * 
+             * +--------+--------+ 
+             * |        |        | 
+             * |        |        | 
+             * |        |        | 
+             * +--------+--------+ 
+             * 
+             */  
+            //运动矢量对应的参考帧  
             for (list = 0; list < sl->list_count; list++) {
+					//横着的2个  
                     for(i=0; i<2; i++){
+		                  //存储在val  
                         unsigned int val;
                         if(IS_DIR(mb_type, i, list)){
                             unsigned rc = sl->ref_count[list] << MB_MBAFF(sl);
@@ -999,27 +1378,74 @@ decode_intra_mb:
                             }
                         }else
                             val= LIST_NOT_USED&0xFF;
+
+						//填充ref_cache  
+						//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+						//scan8[0]代表了cache里面亮度Y的起始点  
+						/* 
+						* 在这里相当于在ref_cache[list]填充了这样的一份数据（第一次循环val=1，第二次循环val=2）： 
+						*   | 
+						* --+-------------- 
+						*   | 0 0 0 0 0 0 0 0 
+						*   | 0 0 0 0 1 1 1 1 
+						*   | 0 0 0 0 1 1 1 1 
+						*   | 0 0 0 0 2 2 2 2 
+						*   | 0 0 0 0 2 2 2 2 
+						*/ 
                         fill_rectangle(&sl->ref_cache[list][ scan8[0] + 16*i ], 4, 2, 8, val, 1);
                     }
             }
-            for (list = 0; list < sl->list_count; list++) {
+            //运动矢量  
+			for (list = 0; list < sl->list_count; list++) {
+                //2个  
                 for(i=0; i<2; i++){
+                    //存储在val  
                     unsigned int val;
                     if(IS_DIR(mb_type, i, list)){
+                        //预测MV  
                         pred_16x8_motion(h, sl, 8*i, list, sl->ref_cache[list][scan8[0] + 16*i], &mx, &my);
-                        mx += get_se_golomb(&sl->gb);
+                        //MV=预测MV+MVD  
+						mx += get_se_golomb(&sl->gb);
                         my += get_se_golomb(&sl->gb);
                         ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
-
+                        //打包？  
                         val= pack16to32(mx,my);
                     }else
                         val=0;
-                    fill_rectangle(sl->mv_cache[list][ scan8[0] + 16*i ], 4, 2, 8, val, 4);
+					//填充mv_cache  
+					//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+					//scan8[0]代表了cache里面亮度Y的起始点  
+					/* 
+					* 在这里相当于在ref_cache[list]填充了这样的一份数据（第一次循环val=1，第二次循环val=2）： 
+					*   | 
+					* --+-------------- 
+					*   | 0 0 0 0 0 0 0 0 
+					*   | 0 0 0 0 1 1 1 1 
+					*   | 0 0 0 0 1 1 1 1 
+					*   | 0 0 0 0 2 2 2 2 
+					*   | 0 0 0 0 2 2 2 2 
+					*/  
+					fill_rectangle(sl->mv_cache[list][ scan8[0] + 16*i ], 4, 2, 8, val, 4);
                 }
             }
-        }else{
-            av_assert2(IS_8X16(mb_type));
+        }else{ //8x16?  
+            /* 
+             * 8x16 宏块划分 
+             * 
+             * +--------+ 
+             * |        | 
+             * |        | 
+             * |        | 
+             * +--------+ 
+             * |        | 
+             * |        | 
+             * |        | 
+             * +--------+ 
+             * 
+             */  
+			av_assert2(IS_8X16(mb_type));
             for (list = 0; list < sl->list_count; list++) {
+	                //竖着的2个  
                     for(i=0; i<2; i++){
                         unsigned int val;
                         if(IS_DIR(mb_type, i, list)){ //FIXME optimize
@@ -1037,6 +1463,20 @@ decode_intra_mb:
                             }
                         }else
                             val= LIST_NOT_USED&0xFF;
+
+						//填充ref_cache  
+						//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+						//scan8[0]代表了cache里面亮度Y的起始点  
+						/* 
+						 * 在这里相当于在ref_cache[list]填充了这样的一份数据（第一次循环val=1，第二次循环val=2）： 
+						 *   | 
+						 * --+-------------- 
+						 *   | 0 0 0 0 0 0 0 0 
+						 *   | 0 0 0 0 1 1 2 2 
+						 *   | 0 0 0 0 1 1 2 2 
+						 *   | 0 0 0 0 1 1 2 2 
+						 *   | 0 0 0 0 1 1 2 2 
+						 */ 
                         fill_rectangle(&sl->ref_cache[list][ scan8[0] + 2*i ], 2, 4, 8, val, 1);
                     }
             }
@@ -1044,31 +1484,51 @@ decode_intra_mb:
                 for(i=0; i<2; i++){
                     unsigned int val;
                     if(IS_DIR(mb_type, i, list)){
+                        //预测MV  
                         pred_8x16_motion(h, sl, i*4, list, sl->ref_cache[list][ scan8[0] + 2*i ], &mx, &my);
-                        mx += get_se_golomb(&sl->gb);
+                        //MV=预测MV+MVD  
+						mx += get_se_golomb(&sl->gb);
                         my += get_se_golomb(&sl->gb);
                         ff_tlog(h->avctx, "final mv:%d %d\n", mx, my);
 
                         val= pack16to32(mx,my);
                     }else
                         val=0;
+					//填充mv_cache  
+					//fill_rectangle(数据起始点，宽，高，一行数据个数，数据值，每个数据占用的byte)  
+					//scan8[0]代表了cache里面亮度Y的起始点  
+					/* 
+					 * 在这里相当于在mv_cache[list]填充了这样的一份数据（第一次循环val=1，第二次循环val=2）： 
+					 *   | 
+					 * --+-------------- 
+					 *   | 0 0 0 0 0 0 0 0 
+					 *   | 0 0 0 0 1 1 2 2 
+					 *   | 0 0 0 0 1 1 2 2 
+					 *   | 0 0 0 0 1 1 2 2 
+					 *   | 0 0 0 0 1 1 2 2 
+					 */  
                     fill_rectangle(sl->mv_cache[list][ scan8[0] + 2*i ], 2, 4, 8, val, 4);
                 }
             }
         }
     }
-
-    if(IS_INTER(mb_type))
+	
+    //将宏块的Cache中的MV拷贝至整张图片的motion_val变量中  
+	if(IS_INTER(mb_type))
         write_back_motion(h, sl, mb_type);
 
+    //Intra16x16的CBP位于mb_type中，其他类型的宏块的CBP需要单独读取  
     if(!IS_INTRA16x16(mb_type)){
+        //获取CBP  
         cbp= get_ue_golomb(&sl->gb);
 
         if(decode_chroma){
+            //YUV420,YUV422的情况  
             if(cbp > 47){
                 av_log(h->avctx, AV_LOG_ERROR, "cbp too large (%u) at %d %d\n", cbp, sl->mb_x, sl->mb_y);
                 return -1;
             }
+            //获取CBP  
             if (IS_INTRA4x4(mb_type))
                 cbp = ff_h264_golomb_to_intra4x4_cbp[cbp];
             else
@@ -1091,10 +1551,22 @@ decode_intra_mb:
     if(dct8x8_allowed && (cbp&15) && !IS_INTRA(mb_type)){
         mb_type |= MB_TYPE_8x8DCT*get_bits1(&sl->gb);
     }
+    //赋值CBP  
     sl->cbp=
     h->cbp_table[mb_xy]= cbp;
+    //赋值mb_type  
     h->cur_pic.mb_type[mb_xy] = mb_type;
-
+    /* 
+     * 亮度cbp取值（只有低4位有意义）： 
+     * 变量的最低位比特从最低位开始，每1位对应1个子宏块，该位等于1时表明对应子宏块残差系数被传送； 
+     * 该位等于0时表明对应子宏块残差全部不被传送 
+     * 色度cbp取值： 
+     * 0，代表所有残差都不被传送 
+     * 1，只传送DC 
+     * 2，传送DC+AC 
+     */  
+  
+    //cbp不为0，才有残差信息  
     if(cbp || IS_INTRA16x16(mb_type)){
         int i4x4, i8x8, chroma_idx;
         int dquant;
@@ -1110,10 +1582,12 @@ decode_intra_mb:
             scan8x8 = sl->qscale ? h->zigzag_scan8x8_cavlc : h->zigzag_scan8x8_cavlc_q0;
             scan    = sl->qscale ? h->zigzag_scan : h->zigzag_scan_q0;
         }
-
+        //QP量化参数的偏移值  
         dquant= get_se_golomb(&sl->gb);
-
+        //由前一个宏块的量化参数累加得到本宏块的QP  
         sl->qscale += (unsigned)dquant;
+        //注：slice中第1个宏块的计算方法（不存在前一个宏块了）：  
+        //QP = 26 + pic_init_qp_minus26 + slice_qp_delta  
 
         if (((unsigned)sl->qscale) > max_qp){
             if (sl->qscale < 0) sl->qscale += max_qp + 1;
@@ -1126,12 +1600,14 @@ decode_intra_mb:
 
         sl->chroma_qp[0] = get_chroma_qp(h->ps.pps, 0, sl->qscale);
         sl->chroma_qp[1] = get_chroma_qp(h->ps.pps, 1, sl->qscale);
-
+		
+        //解码残差-亮度  
         if ((ret = decode_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 0)) < 0 ) {
             return -1;
         }
         h->cbp_table[mb_xy] |= ret << 12;
         if (CHROMA444(h)) {
+            //YUV444，把U，V都当成亮度处理  
             if (decode_luma_residual(h, sl, gb, scan, scan8x8, pixel_shift, mb_type, cbp, 1) < 0 ) {
                 return -1;
             }
@@ -1139,9 +1615,16 @@ decode_intra_mb:
                 return -1;
             }
         } else {
+    		//解码残差-色度  
             const int num_c8x8 = h->ps.sps->chroma_format_idc;
-
-            if(cbp&0x30){
+            //色度CBP位于高4位  
+            //0:不传  
+            //1:只传DC  
+            //2:DC+AC  
+			if(cbp&0x30){
+				//如果传了的话  
+                //就要解码残差数据  
+                //2个分量  
                 for(chroma_idx=0; chroma_idx<2; chroma_idx++)
                     if (decode_residual(h, sl, gb, sl->mb + ((256 + 16*16*chroma_idx) << pixel_shift),
                                         CHROMA_DC_BLOCK_INDEX + chroma_idx,
@@ -1150,8 +1633,9 @@ decode_intra_mb:
                         return -1;
                     }
             }
-
+            //如果传递了AC系数  
             if(cbp&0x20){
+				//2个分量  
                 for(chroma_idx=0; chroma_idx<2; chroma_idx++){
                     const uint32_t *qmul = h->ps.pps->dequant4_coeff[chroma_idx+1+(IS_INTRA( mb_type ) ? 0:3)][sl->chroma_qp[chroma_idx]];
                     int16_t *mb = sl->mb + (16*(16 + 16*chroma_idx) << pixel_shift);
@@ -1165,16 +1649,72 @@ decode_intra_mb:
                     }
                 }
             }else{
+                /* 
+                 * non_zero_count_cache: 
+                 * 每个4x4块的非0系数个数的缓存 
+                 * 
+                 * 在这里把U，V都填充为0 
+                 * non_zero_count_cache[]内容如下所示 
+                 * 图中v=0，上面的块代表Y，中间的块代表U，下面的块代表V 
+                 *   | 
+                 * --+-------------- 
+                 *   | 0 0 0 0 0 0 0 0 
+                 *   | 0 0 0 0 x x x x 
+                 *   | 0 0 0 0 x x x x 
+                 *   | 0 0 0 0 x x x x 
+                 *   | 0 0 0 0 x x x x 
+                 *   | 0 0 0 0 0 0 0 0 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 0 0 0 0 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 *   | 0 0 0 0 v v v v 
+                 */ 
                 fill_rectangle(&sl->non_zero_count_cache[scan8[16]], 4, 4, 8, 0, 1);
                 fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
             }
         }
     }else{
-        fill_rectangle(&sl->non_zero_count_cache[scan8[ 0]], 4, 4, 8, 0, 1);
+        /* 
+         * non_zero_count_cache: 
+         * 每个4x4块的非0系数个数的缓存 
+         * 
+         * cbp为0时，既不传DC，也不传AC，即全部赋值为0 
+         * 
+         * non_zero_count_cache[]内容如下所示 
+         * 图中v=0，上面的块代表Y，中间的块代表U，下面的块代表V 
+         *   | 
+         * --+-------------- 
+         *   | 0 0 0 0 0 0 0 0 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 0 0 0 0 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 0 0 0 0 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         *   | 0 0 0 0 v v v v 
+         * 
+         */ 
+		fill_rectangle(&sl->non_zero_count_cache[scan8[ 0]], 4, 4, 8, 0, 1);
         fill_rectangle(&sl->non_zero_count_cache[scan8[16]], 4, 4, 8, 0, 1);
         fill_rectangle(&sl->non_zero_count_cache[scan8[32]], 4, 4, 8, 0, 1);
     }
+	
+    //赋值QP  
     h->cur_pic.qscale_table[mb_xy] = sl->qscale;
+	
+    //将宏块的non_zero_count_cache拷贝至整张图片的non_zero_count变量中  
     write_back_non_zero_count(h, sl);
 
     return 0;

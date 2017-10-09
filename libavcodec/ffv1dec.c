@@ -224,6 +224,7 @@ static int decode_slice_header(FFV1Context *f, FFV1Context *fs)
     return 0;
 }
 
+
 static int decode_slice(AVCodecContext *c, void *arg)
 {
     FFV1Context *fs   = *(void **)arg;

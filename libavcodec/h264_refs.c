@@ -561,10 +561,16 @@ static H264Picture *remove_long(H264Context *h, int i, int ref_mask)
 }
 
 //ff_h264_remove_all_refs()：移除所有参考帧。
+/*
+从ff_h264_remove_all_refs()的定义中可以看出，
+该函数调用了remove_long()释放了长期参考帧，
+调用unreference_pic()释放了短期参考帧。
+*/
 void ff_h264_remove_all_refs(H264Context *h)
 {
     int i;
-
+    //循环16次  
+    //长期参考帧  
     for (i = 0; i < 16; i++) {
         remove_long(h, i, 0);
     }
@@ -574,7 +580,7 @@ void ff_h264_remove_all_refs(H264Context *h)
         ff_h264_unref_picture(h, &h->last_pic_for_ec);
         ff_h264_ref_picture(h, &h->last_pic_for_ec, h->short_ref[0]);
     }
-
+    //短期参考帧  
     for (i = 0; i < h->short_ref_count; i++) {
         unreference_pic(h, h->short_ref[i], 0);
         h->short_ref[i] = NULL;

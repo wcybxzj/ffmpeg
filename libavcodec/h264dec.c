@@ -136,6 +136,7 @@ void ff_h264_draw_horiz_band(const H264Context *h, H264SliceContext *sl,
     }
 }
 
+//释放各种内存  
 void ff_h264_free_tables(H264Context *h)
 {
     int i;
@@ -364,7 +365,8 @@ static av_cold int h264_decode_end(AVCodecContext *avctx)
 {
     H264Context *h = avctx->priv_data;
     int i;
-
+	
+    //移除参考帧  
     ff_h264_remove_all_refs(h);
     ff_h264_free_tables(h);
 
@@ -395,7 +397,9 @@ static av_cold int h264_decode_end(AVCodecContext *avctx)
 static AVOnce h264_vlc_init = AV_ONCE_INIT;
 
 /*
-ff_h264_decode_init()调用的初始化函数：
+H.264解码器（Decoder）在初始化的时候调用了h264_decode_init()
+
+h264_decode_init()调用的初始化函数：
 ff_h264dsp_init()：初始化DSP相关的函数。包含了IDCT、环路滤波函数等。
 ff_h264qpel_init()：初始化四分之一像素运动补偿相关的函数。
 ff_h264_pred_init()：初始化帧内预测相关的函数。
@@ -424,6 +428,7 @@ static av_cold int h264_decode_init(AVCodecContext *avctx)
     }
     avctx->ticks_per_frame = 2;
 
+    //AVCodecContext中是否包含extradata？包含的话，则解析之  
     if (avctx->extradata_size > 0 && avctx->extradata) {
         ret = ff_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
                                        &h->ps, &h->is_avc, &h->nal_length_size,
@@ -619,7 +624,32 @@ ff_h264_decode_slice_header()：解析Slice Header。
 ff_h264_decode_sei()：解析SEI。
 ff_h264_decode_seq_parameter_set()：解析SPS。
 ff_h264_decode_picture_parameter_set()：解析PPS。
+
+
+decode_nal_units()调用了两类函数——解析函数和解码函数，如下所示。
+（1）解析函数（获取信息）：
+ff_h264_decode_nal()：解析NALU Header。
+ff_h264_decode_seq_parameter_set()：解析SPS。
+ff_h264_decode_picture_parameter_set()：解析PPS。
+ff_h264_decode_sei()：解析SEI。
+ff_h264_decode_slice_header()：解析Slice Header。
+（2）解码函数（解码获得图像）：
+ff_h264_execute_decode_slices()：解码Slice。
+	其中ff_h264_execute_decode_slices()调用了decode_slice()，
+		而decode_slice()中调用了解码器中细节处理的函数（暂不详细分析）：
+			ff_h264_decode_mb_cabac()：CABAC熵解码函数。
+			ff_h264_decode_mb_cavlc()：CAVLC熵解码函数。
+			ff_h264_hl_decode_mb()：宏块解码函数。
+			loop_filter()：环路滤波函数。
+
 */
+
+//decode_nal_units()是用于解码NALU的函数。
+//解码NALU最主要的函数  
+//h264_decode_frame()中：  
+//buf一般是AVPacket->data  
+//buf_size一般是AVPacket->size  
+
 static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
 {
     AVCodecContext *const avctx = h->avctx;
@@ -637,11 +667,23 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
         ff_h264_sei_uninit(&h->sei);
     }
 
+
+    //AVC1和H264的区别：  
+    //AVC1 描述:H.264 bitstream without start codes.是不带起始码0x00000001的。FLV/MKV/MOV种的H.264属于这种  
+    //H264 描述:H.264 bitstream with start codes.是带有起始码0x00000001的。H.264裸流，MPEGTS种的H.264属于这种  
+    //  
+    //通过VLC播放器，可以查看到具体的格式。打开视频后，通过菜单【工具】/【编解码信息】可以查看到【编解码器】具体格式，举例如下，编解码器信息：  
+    //编码: H264 – MPEG-4 AVC (part 10) (avc1)  
+    //编码: H264 – MPEG-4 AVC (part 10) (h264)  
+    // 
+
     if (h->nal_length_size == 4) {
         if (buf_size > 8 && AV_RB32(buf) == 1 && AV_RB32(buf+5) > (unsigned)buf_size) {
+            //前面4位是起始码0x00000001  
             h->is_avc = 0;
         }else if(buf_size > 3 && AV_RB32(buf) > 1 && AV_RB32(buf) <= (unsigned)buf_size)
-            h->is_avc = 1;
+            //前面4位是长度数据  
+			h->is_avc = 1;
     }
 
     ret = ff_h2645_packet_split(&h->pkt, buf, buf_size, avctx, h->is_avc,
@@ -670,6 +712,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
         h->nal_unit_type = nal->type;
 
         err = 0;
+		//根据不同的 NALU Type，调用不同的函数	
         switch (nal->type) {
         case H264_NAL_IDR_SLICE:
             if ((nal->data[1] & 0xFC) == 0x98) {
@@ -688,6 +731,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
             }
             idr_cleared = 1;
             h->has_recovery_point = 1;
+			//注意没有break  
         case H264_NAL_SLICE:
             h->has_slice = 1;
 
@@ -732,6 +776,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
                 ret = 0;
             } else
 #endif
+					//真正的解码  
                     ret = ff_h264_execute_decode_slices(h);
                 if (ret < 0 && (h->avctx->err_recognition & AV_EF_EXPLODE))
                     goto end;
@@ -743,6 +788,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
             avpriv_request_sample(avctx, "data partitioning");
             break;
         case H264_NAL_SEI:
+			//解析SEI补充增强信息单元  
             ret = ff_h264_sei_decode(&h->sei, &nal->gb, &h->ps, avctx);
             h->has_recovery_point = h->has_recovery_point || h->sei.recovery_point.recovery_frame_cnt != -1;
             if (avctx->debug & FF_DEBUG_GREEN_MD)
@@ -757,6 +803,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             break;
         case H264_NAL_SPS: {
             GetBitContext tmp_gb = nal->gb;
+			//解析SPS序列参数集  
             if (ff_h264_decode_seq_parameter_set(&tmp_gb, avctx, &h->ps, 0) >= 0)
                 break;
             av_log(h->avctx, AV_LOG_DEBUG,
@@ -768,6 +815,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             break;
         }
         case H264_NAL_PPS:
+			//解析PPS图像参数集  
             ret = ff_h264_decode_picture_parameter_set(&nal->gb, avctx, &h->ps,
                                                        nal->size_bits);
             if (ret < 0 && (h->avctx->err_recognition & AV_EF_EXPLODE))
@@ -861,9 +909,19 @@ static int get_consumed_bytes(int pos, int buf_size)
 
     return pos;
 }
+/*
+output_frame()用于将一个H264Picture结构体转换为一个AVFrame结构体
 
+Flush Decoder的时候用到  
+srcp输出到dst  
+即H264Picture到AVFrame  
+
+output_frame()实际上就是把H264Picture结构体中的“f”（AVFrame结构体）输出了出来。
+
+*/
 static int output_frame(H264Context *h, AVFrame *dst, H264Picture *srcp)
 {
+    //src即H264Picture中的f  
     AVFrame *src = srcp->f;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(src->format);
     int i;
@@ -945,8 +1003,10 @@ static int finalize_frame(H264Context *h, AVFrame *dst, H264Picture *out, int *g
             av_image_copy(dst_data, linesizes, src_data, linesizes,
                           f->format, f->width, f->height>>1);
         }
-
-        ret = output_frame(h, dst, out);
+		
+		//输出Frame  
+		//即H264Picture到AVFrame  
+		ret = output_frame(h, dst, out);
         if (ret < 0)
             return ret;
 
@@ -969,6 +1029,8 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
                                    int *got_frame, int buf_index)
 {
     int ret, i, out_idx;
+	//输出out，源自于h->delayed_pic[]  
+	//初始化  
     H264Picture *out = h->delayed_pic[0];
 
     h->cur_pic_ptr = NULL;
@@ -981,6 +1043,8 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
          !h->delayed_pic[i]->mmco_reset;
          i++)
         if (h->delayed_pic[i]->poc < out->poc) {
+			//输出out，源自于h->delayed_pic[]  
+			//逐个处理  
             out     = h->delayed_pic[i];
             out_idx = i;
         }
@@ -990,6 +1054,9 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
 
     if (out) {
         out->reference &= ~DELAYED_PIC_REF;
+		//输出  
+		//out输出到pict  
+		//即H264Picture到AVFrame  
         ret = finalize_frame(h, dst_frame, out, got_frame);
         if (ret < 0)
             return ret;
@@ -1006,12 +1073,22 @@ decode_nal_units()，ff_h264_execute_decode_slices()，decode_slice()等。
 h264_decode_frame()内部调用了decode_nal_units()，
 而decode_nal_units()调用了和H.264解析器（Parser）有关的源代码
 
+h264_decode_frame()根据输入的AVPacket的data是否为空作不同的处理：
+（1）若果输入的AVPacket的data为空，
+	则调用output_frame()输出delayed_pic[]数组中的H264Picture，
+	即输出解码器中缓存的帧（对应的是通常称为“Flush Decoder”的功能）。
+（2）若果输入的AVPacket的data不为空，
+	则首先调用decode_nal_units()解码AVPacket的data，
+	然后再调用output_frame()输出解码后的视频帧,把解码后得到的H264Picture转换为AVFrame输出出来
+	（有一点需要注意：由于帧重排等因素，输出的AVFrame并非对应于输入的AVPacket）。
 */
 static int h264_decode_frame(AVCodecContext *avctx, void *data,
                              int *got_frame, AVPacket *avpkt)
 {
+    //赋值。buf对应的就是AVPacket的data  
     const uint8_t *buf = avpkt->data;
     int buf_size       = avpkt->size;
+    //指向AVCodecContext的priv_data  
     H264Context *h     = avctx->priv_data;
     AVFrame *pict      = data;
     int buf_index;
@@ -1024,6 +1101,7 @@ static int h264_decode_frame(AVCodecContext *avctx, void *data,
     ff_h264_unref_picture(h, &h->last_pic_for_ec);
 
     /* end of stream, output what is still in the buffers */
+    // Flush Decoder的时候会调用，此时输入为空的AVPacket=====================  
     if (buf_size == 0)
         return send_next_delayed_frame(h, pict, got_frame, 0);
 
@@ -1041,10 +1119,13 @@ static int h264_decode_frame(AVCodecContext *avctx, void *data,
                                             &h->ps, &h->is_avc, &h->nal_length_size,
                                             avctx->err_recognition, avctx);
     }
-	
+
+	//关键：解码NALU最主要的函数  
+    //=============================================================  
     //H.264解码
     //从h264_decode_frame()的定义可以看出，它调用了decode_nal_units()完成了具体的H.264解码工作。
     buf_index = decode_nal_units(h, buf, buf_size);
+    //=============================================================  
     if (buf_index < 0)
         return AVERROR_INVALIDDATA;
 

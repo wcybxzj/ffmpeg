@@ -366,7 +366,7 @@ int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
         ret = init_get_bits(&nal->gb, nal->data, nal->size_bits);
         if (ret < 0)
             return ret;
-
+		//½âÂëSlice Header	
         if (codec_id == AV_CODEC_ID_HEVC)
             ret = hevc_parse_nal_header(nal, logctx);
         else

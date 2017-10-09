@@ -32,15 +32,15 @@ extern const uint8_t ff_h264_chroma422_dc_scan[8];
 
 typedef struct IMbInfo {
     uint16_t type;
-    uint8_t pred_mode;
-    uint8_t cbp;
+    uint8_t pred_mode;//帧内预测模式  
+    uint8_t cbp;// Coded Block Pattern，高4位为色度，低4位为亮度  
 } IMbInfo;
 
 extern const IMbInfo ff_h264_i_mb_type_info[26];
 
 typedef struct PMbInfo {
-    uint16_t type;
-    uint8_t partition_count;
+    uint16_t type;//宏块类型  
+    uint8_t partition_count;//分块数量  
 } PMbInfo;
 
 extern const PMbInfo ff_h264_p_mb_type_info[5];
