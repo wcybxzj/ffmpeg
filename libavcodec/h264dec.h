@@ -178,6 +178,26 @@ typedef struct H264Ref {
     H264Picture *parent;
 } H264Ref;
 
+
+/*
+在H.264解码器中包含了各种各样的Cache（缓存）。例如：
+intra4x4_pred_mode_cache：Intra4x4帧内预测模式的缓存
+non_zero_count_cache：每个4x4块的非0系数个数的缓存
+mv_cache：运动矢量缓存
+ref_cache：运动矢量参考帧的缓存
+
+通过观察上面的定义，我们会发现Cache都是一个包含x*8个元素的一维数组（x取15或者5）。
+按照我自己的理解，我觉得Cache使用一维数组比较形象的存储了二维图像的信息。
+从上面的代码可以看出Cache中存储有效数据的地方是一个位于右下角的“方形区域”，
+这一部分实际上对应一维数组中第12-15，20-23，28-31，36-39的元素。
+这个“方形区域”代表了一个宏块的亮度相关的信息，其中一共包含16个元素。
+由于1个宏块的亮度数据是1个16x16的块，
+所以这个“方形区域”里面1个元素实际上代表了一个4x4的块的信息
+（“4x4”的亮度块应该也是H.264压缩编码中最小的处理单元）。
+如果我们使用12-15，20-23，28-31，36-39这些范围内的下标引用Cache中的元素，
+实在是不太方便。由此也引出了FFmpeg H.264解码器中另一个关键的变量——scan8[]数组。
+
+*/
 typedef struct H264SliceContext {
     struct H264Context *h264;
     GetBitContext gb;
@@ -206,6 +226,18 @@ typedef struct H264SliceContext {
     int chroma_pred_mode;
     int intra16x16_pred_mode;
 
+	/** 
+     * Intra4x4帧内预测模式的缓存 
+     * 结构如下所示 
+     *   | 
+     * --+-------------- 
+     *   | 0 0 0 0 0 0 0 0 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     */ 
+	//Intra4x4帧内预测模式的缓存
     int8_t intra4x4_pred_mode_cache[5 * 8];
     int8_t(*intra4x4_pred_mode);
 
@@ -295,12 +327,41 @@ typedef struct H264SliceContext {
      * non zero coeff count cache.
      * is 64 if not available.
      */
+    //每个4x4块的非0系数个数的缓存 
     DECLARE_ALIGNED(8, uint8_t, non_zero_count_cache)[15 * 8];
 
     /**
      * Motion vector cache.
      */
-    DECLARE_ALIGNED(16, int16_t, mv_cache)[2][5 * 8][2];
+	/** 
+     * Motion vector cache. 
+     * 运动矢量缓存[list][data][x,y] 
+     * list:L0或者L1 
+     * data:共5x8个元素（注意是int16_t类型） 
+     * 结构如下所示 
+     *   | 
+     * --+-------------- 
+     *   | 0 0 0 0 0 0 0 0 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     * x,y：运动矢量的横坐标和纵坐标 
+     */
+	//运动矢量缓存
+	DECLARE_ALIGNED(16, int16_t, mv_cache)[2][5 * 8][2];
+	/** 
+     * 运动矢量参考帧的缓存，与mv_cache配合使用（注意数据是int8_t类型） 
+     * 结构如下所示 
+     *   | 
+     * --+-------------- 
+     *   | 0 0 0 0 0 0 0 0 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     *   | 0 0 0 0 Y Y Y Y 
+     */  
+	//运动矢量参考帧的缓存
     DECLARE_ALIGNED(8,  int8_t, ref_cache)[2][5 * 8];
     DECLARE_ALIGNED(16, uint8_t, mvd_cache)[2][5 * 8][2];
     uint8_t direct_cache[5 * 8];
@@ -632,7 +693,60 @@ void ff_h264_filter_mb(const H264Context *h, H264SliceContext *sl, int mb_x, int
 #define LUMA_DC_BLOCK_INDEX   48
 #define CHROMA_DC_BLOCK_INDEX 49
 
-// This table must be here because scan8[constant] must be known at compiletime
+//scan8[]存储的是缓存的序号值，它一般情况下是与前面提到的Cache配合使用的。
+
+/* 
+ * 扫描方式： 
+ * o-o o-o 
+ *  / / / 
+ * o-o o-o 
+ *  ,---' 
+ * o-o o-o 
+ *  / / / 
+ * o-o o-o 
+ */  
+  
+/* Scan8 organization: 
+ *    0 1 2 3 4 5 6 7 
+ * 0  DY    y y y y y 
+ * 1        y Y Y Y Y 
+ * 2        y Y Y Y Y 
+ * 3        y Y Y Y Y 
+ * 4        y Y Y Y Y 
+ * 5  DU    u u u u u 
+ * 6        u U U U U 
+ * 7        u U U U U 
+ * 8        u U U U U 
+ * 9        u U U U U 
+ * 10 DV    v v v v v 
+ * 11       v V V V V 
+ * 12       v V V V V 
+ * 13       v V V V V 
+ * 14       v V V V V 
+ * DY/DU/DV are for luma/chroma DC. 
+ */  
+/*
+可以看出scan8[]数组中元素的值都是以“a+b*8”的形式写的，我们不妨计算一下前面16个元素的值：
+scan8[0]=12
+scan8[1]= 13
+scan8[2]= 20
+scan8[3]= 21
+scan8[4]= 14
+scan8[5]= 15
+scan8[6]= 22
+scan8[7]= 23
+scan8[8]= 28
+scan8[9]= 29
+scan8[10]= 36
+scan8[11]= 37
+scan8[12]= 30
+scan8[13]= 31
+scan8[14]= 38
+scan8[15]= 39
+*/
+
+// This table must be here because scan8[constant] must be known at compiletime  
+//scan8[]通常与各种cache配合使用(mv_cache,ref_cache等)  
 static const uint8_t scan8[16 * 3 + 3] = {
     4 +  1 * 8, 5 +  1 * 8, 4 +  2 * 8, 5 +  2 * 8,
     6 +  1 * 8, 7 +  1 * 8, 6 +  2 * 8, 7 +  2 * 8,
@@ -675,15 +789,30 @@ static av_always_inline int get_chroma_qp(const PPS *pps, int t, int qscale)
     return pps->chroma_qp_table[t][qscale];
 }
 
+
+/*
+推测Intra4x4帧内预测模式
+在Intra4x4帧内编码的宏块中，每个4x4的子块都有自己的帧内预测方式。
+H.264码流中并不是直接保存了每个子块的帧内预测方式（不利于压缩）。
+而是优先通过有周围块的信息推测当前块的帧内预测模式。
+具体的方法就是获取到左边块和上边块的预测模式，然后取它们的最小值作为当前块的预测模式。
+*/
+
 /**
  * Get the predicted intra4x4 prediction mode.
  */
+ 
+//获得对Intra4x4的预测模式的预测值（挺绕口，确实是这样）  
+//这个预测模式由左边和上边块的预测模式（取最小值）推导主来  
 static av_always_inline int pred_intra_mode(const H264Context *h,
                                             H264SliceContext *sl, int n)
 {
-    const int index8 = scan8[n];
+    const int index8 = scan8[n];	
+    //左边块的预测方式  
     const int left   = sl->intra4x4_pred_mode_cache[index8 - 1];
+    //上边块的预测方式  
     const int top    = sl->intra4x4_pred_mode_cache[index8 - 8];
+    //获得左边和上边的最小值  
     const int min    = FFMIN(left, top);
 
     ff_tlog(h->avctx, "mode:%d %d min:%d\n", left, top, min);
@@ -729,16 +858,39 @@ static av_always_inline void write_back_non_zero_count(const H264Context *h,
         AV_COPY32(&nnz[44], &nnz_cache[4 + 8 * 14]);
     }
 }
+/*
+write_back_motion_list()是将宏块的Cache中的MV拷贝至整张图片的motion_val变量中的执行函数。
 
+将宏块的Cache中的MV拷贝至整张图片的motion_val变量中-这是具体的执行函数  
+
+如果使用了List0，会调用一次write_back_motion_list()函数（注意最后一个参数为“0”）；
+如果使用了List1（双向预测），又会调用一次write_back_motion_list()函数（注意最后一个参数为“1”）。
+
+
+write_back_motion_list()
+首先将mv_cache中的运动矢量信息拷贝至cur_pic（H264Picture类型）的motion_val中（motion_val中存储了整张图片的运动矢量信息）；
+然后将ref_cache中的参考帧序号信息拷贝至cur_pic（H264Picture类型）的ref_index中（ref_index中存储了整张图片的参考帧信息）。
+
+*/
 static av_always_inline void write_back_motion_list(const H264Context *h,
                                                     H264SliceContext *sl,
                                                     int b_stride,
                                                     int b_xy, int b8_xy,
                                                     int mb_type, int list)
 {
+    //目的：整张图片的motion_val  
     int16_t(*mv_dst)[2] = &h->cur_pic.motion_val[list][b_xy];
+    //源：宏块的Cache，从scan8[0]开始  
     int16_t(*mv_src)[2] = &sl->mv_cache[list][scan8[0]];
+    //一个运动矢量的坐标（x或者y）占用一个int16_t  
+    //一个宏块一行有4个运动矢量  
+    //每个运动矢量包含2个坐标（x和y）  
+    //一个宏块一行运动矢量的数据量=16*4*2=128  
+    //因此这里拷贝128bit  
     AV_COPY128(mv_dst + 0 * b_stride, mv_src + 8 * 0);
+    //每个宏块有4行4列的运动矢量（总计16个）  
+    //因此要分别拷贝4行  
+    //b_stride代表了1行图像中运动矢量的个数  
     AV_COPY128(mv_dst + 1 * b_stride, mv_src + 8 * 1);
     AV_COPY128(mv_dst + 2 * b_stride, mv_src + 8 * 2);
     AV_COPY128(mv_dst + 3 * b_stride, mv_src + 8 * 3);
@@ -757,7 +909,11 @@ static av_always_inline void write_back_motion_list(const H264Context *h,
     }
 
     {
+		
+        //拷贝参考帧序号  
+        //目的：整张图片的ref_index  
         int8_t *ref_index = &h->cur_pic.ref_index[list][b8_xy];
+        //源：宏块的Cache，从scan8[0]开始  
         int8_t *ref_cache = sl->ref_cache[list];
         ref_index[0 + 0 * 2] = ref_cache[scan8[0]];
         ref_index[1 + 0 * 2] = ref_cache[scan8[4]];
@@ -766,6 +922,13 @@ static av_always_inline void write_back_motion_list(const H264Context *h,
     }
 }
 
+//write_back_motion()可以将宏块的Cache中的MV拷贝至整张图片的motion_val变量中。
+/*
+从源代码可以看出，
+如果使用了List0，会调用一次write_back_motion_list()函数（注意最后一个参数为“0”）；
+如果使用了List1（双向预测），又会调用一次write_back_motion_list()函数（注意最后一个参数为“1”）。
+*/
+
 static av_always_inline void write_back_motion(const H264Context *h,
                                                H264SliceContext *sl,
                                                int mb_type)
@@ -773,13 +936,15 @@ static av_always_inline void write_back_motion(const H264Context *h,
     const int b_stride      = h->b_stride;
     const int b_xy  = 4 * sl->mb_x + 4 * sl->mb_y * h->b_stride; // try mb2b(8)_xy
     const int b8_xy = 4 * sl->mb_xy;
-
+	
+    //L0：将宏块的Cache中的MV拷贝至整张图片的motion_val变量中  
     if (USES_LIST(mb_type, 0)) {
         write_back_motion_list(h, sl, b_stride, b_xy, b8_xy, mb_type, 0);
     } else {
         fill_rectangle(&h->cur_pic.ref_index[0][b8_xy],
                        2, 2, 2, (uint8_t)LIST_NOT_USED, 1);
     }
+    //L1：将宏块的Cache中的MV拷贝至整张图片的motion_val变量中（最后一个参数不同）  
     if (USES_LIST(mb_type, 1))
         write_back_motion_list(h, sl, b_stride, b_xy, b8_xy, mb_type, 1);
 

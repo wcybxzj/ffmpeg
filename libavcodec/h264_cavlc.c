@@ -630,6 +630,15 @@ static int decode_residual(const H264Context *h, H264SliceContext *sl,
     return 0;
 }
 
+
+/*
+当ff_h264_decode_mb_cavlc 的CBP不为0的时候，会调用decode_luma_residual()解码亮度残差数据。
+此外如果包含色度残差的话，还会调用decode_residual()解码色度残差数据
+
+decode_luma_residual()内部实际上也是调用了decode_residual()解码残差数据。
+decode_residual()内部则调用了get_vlc2()解析CAVLC数据。由于decode_residual()内部还没有仔细看
+*/
+//解码残差-亮度  
 static av_always_inline
 int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
                          GetBitContext *gb, const uint8_t *scan,
@@ -639,19 +648,25 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
     int i4x4, i8x8;
     int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
     if(IS_INTRA16x16(mb_type)){
+        //Intra16x16类型  
         AV_ZERO128(sl->mb_luma_dc[p]+0);
         AV_ZERO128(sl->mb_luma_dc[p]+8);
         AV_ZERO128(sl->mb_luma_dc[p]+16);
         AV_ZERO128(sl->mb_luma_dc[p]+24);
+        //解码残差  
+        //在这里是解码Hadamard变换后的系数？  
         if (decode_residual(h, sl, gb, sl->mb_luma_dc[p], LUMA_DC_BLOCK_INDEX + p, scan, NULL, 16) < 0) {
             return -1; //FIXME continue if partitioned and other return -1 too
         }
 
         av_assert2((cbp&15) == 0 || (cbp&15) == 15);
 
+        //cbp=15=1111  
         if(cbp&15){
+            //如果子宏块亮度残差全都编码了  
             for(i8x8=0; i8x8<4; i8x8++){
                 for(i4x4=0; i4x4<4; i4x4++){
+                    //循环16次  
                     const int index= i4x4 + 4*i8x8 + p*16;
                     if( decode_residual(h, sl, gb, sl->mb + (16*index << pixel_shift),
                         index, scan + 1, h->ps.pps->dequant4_coeff[p][qscale], 15) < 0 ){
@@ -661,6 +676,8 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
             }
             return 0xf;
         }else{
+			//如果子宏块亮度残差没有编码  
+			//就把non_zero_count_cache亮度部分全部填上0  
             fill_rectangle(&sl->non_zero_count_cache[scan8[p*16]], 4, 4, 8, 0, 1);
             return 0;
         }
@@ -685,6 +702,7 @@ int decode_luma_residual(const H264Context *h, H264SliceContext *sl,
                 }else{
                     for(i4x4=0; i4x4<4; i4x4++){
                         const int index= i4x4 + 4*i8x8 + p*16;
+                        //解码残差  
                         if( decode_residual(h, sl, gb, sl->mb + (16*index << pixel_shift), index,
                                             scan, h->ps.pps->dequant4_coeff[cqm][qscale], 16) < 0 ){
                             return -1;
@@ -758,6 +776,24 @@ i_mb_type_info[]存储了I宏块的类型
 		ii.解析子宏块的运动矢量
 （5）解码残差信息
 （6）将宏块的各种信息输出到整个图片相应的变量中
+*/
+
+/*
+宏块的各种信息输出到整个图片相应的内存中
+
+ff_h264_decode_mb_cavlc()中包含了很多名称为write_back_{XXX}()的函数。
+这些函数用于将Cache中当前宏块的信息拷贝至整张图片的相应的变量中。
+例如如下几个函数：
+
+write_back_intra_pred_mode()：
+将intra4x4_pred_mode_cache中的数据拷贝至intra4x4_pred_mode。
+
+write_back_motion()：
+将mv_cache中的数据拷贝至cur_pic结构体中的motion_val；然后将ref_cache中的数据拷贝至cur_pic结构体中的ref_index。
+
+write_back_non_zero_count()：
+将non_zero_count_cache中的数据拷贝至non_zero_count。
+
 */
 int ff_h264_decode_mb_cavlc(const H264Context *h, H264SliceContext *sl)
 {

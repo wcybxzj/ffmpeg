@@ -38,12 +38,44 @@
 #define CHROMA_IDC 2
 #include "h264_mc_template.c"
 
+
+/*
+PS：在这里需要注意，FFmpeg H.264解码器中名称中包含“_template”的C语言文件中的函数都是使用类似于“FUNC(name)()”的方式书写的，
+这样做的目的大概是为了适配各种各样的功能。
+例如
+在处理16bit的H.264码流的时候，FUNC(hl_decode_mb)()可以展开为hl_decode_mb_simple_16()函数；
+同理，FUNC(hl_decode_mb)()在其他条件下也可以展开为hl_decode_mb_complex()函数。
+*/
+//hl是什么意思？high level？  
+/*
+* 宏块解码 
+* 帧内宏块：帧内预测->残差DCT反变换 
+* 帧间宏块：帧间预测（运动补偿）->残差DCT反变换 
+*/
+
+
+/*
+下面简单梳理一下FUNC(hl_decode_mb)的流程（在这里只考虑亮度分量的解码，色度分量的解码过程是类似的）：
+（1）预测
+	a)如果是帧内预测宏块（Intra），
+	  调用hl_decode_mb_predict_luma()进行帧内预测，得到预测数据。
+	b)如果不是帧内预测宏块（Inter），
+	  调用FUNC(hl_motion_420)()或者FUNC(hl_motion_422)()进行帧间预测（即运动补偿），得到预测数据。
+（2）残差叠加
+	a)调用hl_decode_mb_idct_luma()对DCT残差数据进行DCT反变换，
+	  获得残差像素数据并且叠加到之前得到的预测数据上，得到最后的图像数据。
+PS：该流程中有一个重要的贯穿始终的内存指针dest_y，其指向的内存中存储了解码后的亮度数据。
+*/
 static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContext *sl)
 {
+    //序号：x（行）和y（列）  
     const int mb_x    = sl->mb_x;
     const int mb_y    = sl->mb_y;
+    //宏块序号 mb_xy = mb_x + mb_y*mb_stride  
     const int mb_xy   = sl->mb_xy;
+    //宏块类型  
     const int mb_type = h->cur_pic.mb_type[mb_xy];
+	//这三个变量存储最后处理完成的像素值  
     uint8_t *dest_y, *dest_cb, *dest_cr;
     int linesize, uvlinesize /*dct_offset*/;
     int i, j;
@@ -52,7 +84,8 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
     void (*idct_add)(uint8_t *dst, int16_t *block, int stride);
     const int block_h   = 16 >> h->chroma_y_shift;
     const int chroma422 = CHROMA422(h);
-
+    //存储Y，U，V像素的位置：dest_y，dest_cb，dest_cr  
+    //分别对应AVFrame的data[0]，data[1]，data[2]  
     dest_y  = h->cur_pic.f->data[0] + ((mb_x << PIXEL_SHIFT)     + mb_y * sl->linesize)  * 16;
     dest_cb = h->cur_pic.f->data[1] +  (mb_x << PIXEL_SHIFT) * 8 + mb_y * sl->uvlinesize * block_h;
     dest_cr = h->cur_pic.f->data[2] +  (mb_x << PIXEL_SHIFT) * 8 + mb_y * sl->uvlinesize * block_h;
@@ -62,6 +95,9 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
 
     h->list_counts[mb_xy] = sl->list_count;
 
+    //系统中包含了  
+    //#define SIMPLE 1  
+    //不会执行？  
     if (!SIMPLE && MB_FIELD(sl)) {
         linesize     = sl->mb_linesize = sl->linesize * 2;
         uvlinesize   = sl->mb_uvlinesize = sl->uvlinesize * 2;
@@ -94,8 +130,11 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
         uvlinesize = sl->mb_uvlinesize = sl->uvlinesize;
         // dct_offset = s->linesize * 16;
     }
-
-    if (!SIMPLE && IS_INTRA_PCM(mb_type)) {
+	
+    //系统中包含了  
+    //#define SIMPLE 1  
+    //不会执行？ 
+	if (!SIMPLE && IS_INTRA_PCM(mb_type)) {
         const int bit_depth = h->ps.sps->bit_depth_luma;
         if (PIXEL_SHIFT) {
             int j;
@@ -150,7 +189,9 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
             }
         }
     } else {
-        if (IS_INTRA(mb_type)) {
+        //Intra类型  
+        //Intra4x4或者Intra16x16  
+		if (IS_INTRA(mb_type)) {
             if (sl->deblocking_filter)
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
                                uvlinesize, 1, 0, SIMPLE, PIXEL_SHIFT);
@@ -159,7 +200,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cb, uvlinesize);
                 h->hpc.pred8x8[sl->chroma_pred_mode](dest_cr, uvlinesize);
             }
-
+            //帧内预测-亮度  
             hl_decode_mb_predict_luma(h, sl, mb_type, SIMPLE,
                                       transform_bypass, PIXEL_SHIFT,
                                       block_offset, linesize, dest_y, 0);
@@ -168,6 +209,8 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                 xchg_mb_border(h, sl, dest_y, dest_cb, dest_cr, linesize,
                                uvlinesize, 0, 0, SIMPLE, PIXEL_SHIFT);
         } else {
+			//Inter类型  
+			//运动补偿	
             if (chroma422) {
                 FUNC(hl_motion_422)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
@@ -177,6 +220,10 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                               h->h264dsp.weight_h264_pixels_tab,
                               h->h264dsp.biweight_h264_pixels_tab);
             } else {
+                //“*_put”处理单向预测，“*_avg”处理双向预测，“weight”处理加权预测  
+                //h->qpel_put[16]包含了单向预测的四分之一像素运动补偿所有样点处理的函数  
+                //两个像素之间横向的点（内插点和原始的点）有4个，纵向的点有4个，组合起来一共16个  
+                //h->qpel_avg[16]情况也类似 
                 FUNC(hl_motion_420)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
                               h->h264chroma.put_h264_chroma_pixels_tab,
@@ -186,13 +233,16 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                               h->h264dsp.biweight_h264_pixels_tab);
             }
         }
-
+		
+        //亮度的IDCT  
         hl_decode_mb_idct_luma(h, sl, mb_type, SIMPLE, transform_bypass,
                                PIXEL_SHIFT, block_offset, linesize, dest_y, 0);
 
+        //色度的IDCT（没有写在一个单独的函数中）  
         if ((SIMPLE || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) &&
             (sl->cbp & 0x30)) {
             uint8_t *dest[2] = { dest_cb, dest_cr };
+            //transform_bypass=0，不考虑  
             if (transform_bypass) {
                 if (IS_INTRA(mb_type) && h->ps.sps->profile_idc == 244 &&
                     (sl->chroma_pred_mode == VERT_PRED8x8 ||
@@ -233,13 +283,18 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                     qp[0] = sl->chroma_qp[0];
                     qp[1] = sl->chroma_qp[1];
                 }
+				//色度的IDCT  
+				//直流分量的hadamard变换  
                 if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 0]])
                     h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 1 << PIXEL_SHIFT),
                                                            h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 1 : 4][qp[0]][0]);
                 if (sl->non_zero_count_cache[scan8[CHROMA_DC_BLOCK_INDEX + 1]])
                     h->h264dsp.h264_chroma_dc_dequant_idct(sl->mb + (16 * 16 * 2 << PIXEL_SHIFT),
                                                            h->ps.pps->dequant4_coeff[IS_INTRA(mb_type) ? 2 : 5][qp[1]][0]);
-                h->h264dsp.h264_idct_add8(dest, block_offset,
+				
+				//IDCT	
+				//最后的“8”代表内部循环处理8次（U,V各4次）  
+				h->h264dsp.h264_idct_add8(dest, block_offset,
                                           sl->mb, uvlinesize,
                                           sl->non_zero_count_cache);
             }

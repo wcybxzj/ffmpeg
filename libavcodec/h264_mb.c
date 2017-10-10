@@ -800,30 +800,48 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
 解码函数是ff_h264_hl_decode_mb()
 其中跟宏块类型的不同，会调用几个不同的函数，最常见的就是调用hl_decode_mb_simple_8()。
 
-hl_decode_mb_simple_8()的定义是无法在源代码中直接找到的，这是因为它实际代码的函数名称是使用宏的方式写的（以后再具体分析）。
+hl_decode_mb_simple_8()的定义是无法在源代码中直接找到的，
+这是因为它实际代码的函数名称是使用宏的方式写的（以后再具体分析）。
 hl_decode_mb_simple_8()的源代码实际上就是FUNC(hl_decode_mb)()函数的源代码。
 
 FUNC(hl_decode_mb)()根据宏块类型的不同作不同的处理：
 如果宏块类型是INTRA，就会调用hl_decode_mb_predict_luma()进行帧内预测；
 如果宏块类型不是INTRA，就会调用FUNC(hl_motion_422)()或者FUNC(hl_motion_420)()进行四分之一像素运动补偿。
 随后FUNC(hl_decode_mb)()会调用hl_decode_mb_idct_luma()等几个函数对数据进行DCT反变换工作。
+并将变换后的数据叠加到预测数据上，形成解码后的图像数据。
+*/
+/*
+ff_h264_hl_decode_mb()完成了宏块解码的工作。
+“宏块解码”就是根据前一步骤“熵解码”得到的宏块类型、运动矢量、参考帧、DCT残差数据等信息恢复图像数据的过程。
+*/
+/*
+可以看出ff_h264_hl_decode_mb()的定义很简单：
+通过系统的参数（例如颜色位深是不是8bit，YUV采样格式是不是4：4：4等）判断该调用哪一个函数作为解码函数。
+由于最普遍的情况是解码8bit的YUV420P格式的H.264数据，因此一般情况下会调用hl_decode_mb_simple_8()。
+这里有一点需要注意：如果我们直接查找hl_decode_mb_simple_8()的定义，会发现这个函数是找不到的。
+这个函数的定义实际上就是FUNC(hl_decode_mb)()函数。
+FUNC(hl_decode_mb)()函数名称中的宏“FUNC()”展开后就是hl_decode_mb_simple_8()。
+FUNC(hl_decode_mb)()的定义位于libavcodec\h264_mb_template.c
 */
 void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl)
 {
+    //宏块序号 mb_xy = mb_x + mb_y*mb_stride  
     const int mb_xy   = sl->mb_xy;
+    //宏块类型  
     const int mb_type = h->cur_pic.mb_type[mb_xy];
+    //比较少见，PCM类型  
     int is_complex    = CONFIG_SMALL || sl->is_complex ||
                         IS_INTRA_PCM(mb_type) || sl->qscale == 0;
-
+    //YUV444  
     if (CHROMA444(h)) {
         if (is_complex || h->pixel_shift)
             hl_decode_mb_444_complex(h, sl);
         else
             hl_decode_mb_444_simple_8(h, sl);
     } else if (is_complex) {
-        hl_decode_mb_complex(h, sl);
+        hl_decode_mb_complex(h, sl);//PCM类型？
     } else if (h->pixel_shift) {
-        hl_decode_mb_simple_16(h, sl);
+        hl_decode_mb_simple_16(h, sl);//色彩深度为16  
     } else
-        hl_decode_mb_simple_8(h, sl);
+        hl_decode_mb_simple_8(h, sl);//色彩深度为8  
 }

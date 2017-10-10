@@ -92,7 +92,7 @@ static av_always_inline int fetch_diagonal_mv(const H264Context *h, H264SliceCon
  * @param mx the x component of the predicted motion vector
  * @param my the y component of the predicted motion vector
  */
- //数获取运动矢量相关的信息。
+//获取预测MV（取中值），结果存入mx，my  
 static av_always_inline void pred_motion(const H264Context *const h,
                                          H264SliceContext *sl,
                                          int n,
@@ -102,8 +102,11 @@ static av_always_inline void pred_motion(const H264Context *const h,
     const int index8       = scan8[n];
     const int top_ref      = sl->ref_cache[list][index8 - 8];
     const int left_ref     = sl->ref_cache[list][index8 - 1];
+    //左侧MV  
     const int16_t *const A = sl->mv_cache[list][index8 - 1];
+    //上方MV  
     const int16_t *const B = sl->mv_cache[list][index8 - 8];
+    //右上MV？  
     const int16_t *C;
     int diagonal_ref, match_count;
 
@@ -121,9 +124,11 @@ static av_always_inline void pred_motion(const H264Context *const h,
     match_count  = (diagonal_ref == ref) + (top_ref == ref) + (left_ref == ref);
     ff_tlog(h->avctx, "pred_motion match_count=%d\n", match_count);
     if (match_count > 1) { //most common
-        *mx = mid_pred(A[0], B[0], C[0]);
+        //取A,B,C中值  
+		*mx = mid_pred(A[0], B[0], C[0]);
         *my = mid_pred(A[1], B[1], C[1]);
     } else if (match_count == 1) {
+	    //只取其中的一个值	
         if (left_ref == ref) {
             *mx = A[0];
             *my = A[1];
