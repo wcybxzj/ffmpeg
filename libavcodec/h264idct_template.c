@@ -29,19 +29,49 @@
 #include "libavutil/common.h"
 #include "h264dec.h"
 #include "h264idct.h"
+/*
+ff_h264_idct_add_8_c()用于进行4x4整数DCT反变换，
 
+* _block：输入DCT系数 
+* _dst：输出像素数据 
+* stride：一行图像数据的大小 
+*/
+//IDCT反变换（4x4）  
+//“add”的意思是在像素数据（通过预测获得）上面叠加（而不是赋值）IDCT的结果  
+// assumes all AC coefs are 0
+/*
+从ff_h264_idct_add_8_c()的定义可以看出，该函数首先对4x4系数块中纵向的4列数据进行了一维DCT反变换，
+然后又对4x4系数块中横向的4行数据进行了DCT一维反变换，最后将变换后的残差图像数据叠加到了原有数据之上。
+*/
 void FUNCC(ff_h264_idct_add)(uint8_t *_dst, int16_t *_block, int stride)
 {
+    /* 
+     *     | 1  1  1  1 |   | 1  2  1  1 | 
+     *     | 2  1 -1 -2 |   | 1  1 -1 -2 | 
+     * Y = | 1 -1 -1 -2 | X | 1 -1 -1  2 | 
+     *     | 1 -2  2 -1 |   | 1 -2  1 -1 | 
+     * 
+     */ 
+
     int i;
     pixel *dst = (pixel*)_dst;
     dctcoef *block = (dctcoef*)_block;
     stride >>= sizeof(pixel)-1;
 
     block[0] += 1 << 5;
+    //蝶形算法（一维变换，纵向）  
+    //---+----------  
+    // 0 |   |   |   |  
+    // 4 |  
+    // 8 |  
+    // 12|  
+    //---+----------  
 
     for(i=0; i<4; i++){
+		 //[0]和[2]  
         const SUINT z0=  block[i + 4*0]     +  block[i + 4*2];
-        const SUINT z1=  block[i + 4*0]     -  block[i + 4*2];
+        const SUINT z1=  block[i + 4*0]     -  block[i + 4*2];		
+        //[1]和[3]  
         const SUINT z2= (block[i + 4*1]>>1) -  block[i + 4*3];
         const SUINT z3=  block[i + 4*1]     + (block[i + 4*3]>>1);
 
@@ -51,18 +81,30 @@ void FUNCC(ff_h264_idct_add)(uint8_t *_dst, int16_t *_block, int stride)
         block[i + 4*3]= z0 - z3;
     }
 
+    //蝶形算法（另一维变换，横向）  
+    //---+----------  
+    // 0 | 1 | 2 | 3 |  
+    //   |  
+    //   |  
+    //   |  
+    //---+----------  
+
     for(i=0; i<4; i++){
         const SUINT z0=  block[0 + 4*i]     +  (SUINT)block[2 + 4*i];
         const SUINT z1=  block[0 + 4*i]     -  (SUINT)block[2 + 4*i];
         const SUINT z2= (block[1 + 4*i]>>1) -  (SUINT)block[3 + 4*i];
         const SUINT z3=  block[1 + 4*i]     + (SUINT)(block[3 + 4*i]>>1);
-
+        //av_clip_pixel(): 把一个整形转换取值范围为0-255的数值，用于限幅  
+        //注意是累加而不是赋值到dst上（所以函数名中包含“add”）  
+  
+        //转置？！  
+        //一列一列处理  
         dst[i + 0*stride]= av_clip_pixel(dst[i + 0*stride] + ((int)(z0 + z3) >> 6));
         dst[i + 1*stride]= av_clip_pixel(dst[i + 1*stride] + ((int)(z1 + z2) >> 6));
         dst[i + 2*stride]= av_clip_pixel(dst[i + 2*stride] + ((int)(z1 - z2) >> 6));
         dst[i + 3*stride]= av_clip_pixel(dst[i + 3*stride] + ((int)(z0 - z3) >> 6));
     }
-
+    //清零  
     memset(block, 0, 16 * sizeof(dctcoef));
 }
 
@@ -140,18 +182,28 @@ void FUNCC(ff_h264_idct8_add)(uint8_t *_dst, int16_t *_block, int stride){
     memset(block, 0, 64 * sizeof(dctcoef));
 }
 
-// assumes all AC coefs are 0
+//ff_h264_idct_dc_add_8_c()用于对只有DC系数的4x4矩阵进行4x4整数DCT反变换
+// assumes all AC coefs are 0  
+//DCT反变换，特殊情况：  
+//AC系数全部为0（没有传递AC系数，只有DC系数）  
+/*
+可以看出只有DC系数的DCT反变换相比前面“正式”的DCT反变换来说简单了很多，只需要把DC系数赋值到4x4块中的每个像素上就可以了。
+*/
 void FUNCC(ff_h264_idct_dc_add)(uint8_t *_dst, int16_t *_block, int stride){
-    int i, j;
+
+	int i, j;
     pixel *dst = (pixel*)_dst;
     dctcoef *block = (dctcoef*)_block;
+    //DC系数  
     int dc = (block[0] + 32) >> 6;
-    stride /= sizeof(pixel);
+    stride /= sizeof(pixel);	
+    //设置为0  
     block[0] = 0;
+    //在4x4块的每个像素上面累加（注意不是赋值）dc系数  
     for( j = 0; j < 4; j++ )
     {
         for( i = 0; i < 4; i++ )
-            dst[i] = av_clip_pixel( dst[i] + dc );
+            dst[i] = av_clip_pixel( dst[i] + dc );//av_clip_pixel(): 把一个整形转换取值范围为0-255的数值，用于限幅  
         dst += stride;
     }
 }
@@ -171,16 +223,47 @@ void FUNCC(ff_h264_idct8_dc_add)(uint8_t *_dst, int16_t *_block, int stride){
     }
 }
 
+/*
+ff_h264_idct_add16_8_c()用于对16x16的块进行4x4整数DCT反变换
+
+从源代码可以看出，16x16块的4x4DCT反变换的实质就是把16x16的块分割为16个4x4的块，然后分别进行4x4DCT反变换。
+*/
+//处理16x16宏块  
+//采用4x4的IDCT  
+//最后的“16”代表内部循环处理16次	
+//输入为block，输出为dst  
 void FUNCC(ff_h264_idct_add16)(uint8_t *dst, const int *block_offset, int16_t *block, int stride, const uint8_t nnzc[15*8]){
     int i;
+    //循环16次  
     for(i=0; i<16; i++){
+        //非零系数个数  
         int nnz = nnzc[ scan8[i] ];
+		
+        //非零系数个数不为0才处理  
         if(nnz){
-            if(nnz==1 && ((dctcoef*)block)[i*16]) FUNCC(ff_h264_idct_dc_add)(dst + block_offset[i], block + i*16*sizeof(pixel), stride);
-            else                                  FUNCC(ff_h264_idct_add   )(dst + block_offset[i], block + i*16*sizeof(pixel), stride);
+			
+            //特殊：只有DC系数  
+            if(nnz==1 && ((dctcoef*)block)[i*16]) 
+				FUNCC(ff_h264_idct_dc_add)(dst + block_offset[i], block + i*16*sizeof(pixel), stride);
+            else
+				//一般的情况  
+				FUNCC(ff_h264_idct_add   )(dst + block_offset[i], block + i*16*sizeof(pixel), stride);
         }
     }
 }
+/*
+h264_idct_add16intra()用于对16x16的帧内预测（Intra）的块进行4x4整数DCT反变换
+
+可以看出h264_idct_add16intra()的机制与ff_h264_idct_add16_8_c()是类似的，只是有一些细节的差别：
+它们都是把16x16的块分割为16个4x4的块，然后分别进行4x4DCT反变换。
+
+至此FFmpeg H.264解码器的帧内宏块（Intra）解码相关的代码就基本分析完毕了。
+总而言之帧内预测宏块的解码就是“预测+残差”的处理流程。下一篇文章分析帧间宏块（Inter）解码的代码。
+*/
+//处理Intra16x16宏块  
+//采用4x4的IDCT  
+//最后的“16”代表内部循环处理16次	
+//输入为block，输出为dst  
 
 void FUNCC(ff_h264_idct_add16intra)(uint8_t *dst, const int *block_offset, int16_t *block, int stride, const uint8_t nnzc[15*8]){
     int i;
@@ -239,6 +322,10 @@ void FUNCC(ff_h264_idct_add8_422)(uint8_t **dest, const int *block_offset, int16
  * IDCT transforms the 16 dc values and dequantizes them.
  * @param qmul quantization parameter
  */
+ 
+//DCT直流系数的Hadamard反变换-亮度  
+//16x16宏块中一共有16个4x4的图像块，因此包含了16个DCT直流系数  
+//ff_h264_chroma_dc_dequant_idct_8_c()实现了Hadamard反变换的蝶形算法。 
 void FUNCC(ff_h264_luma_dc_dequant_idct)(int16_t *_output, int16_t *_input, int qmul){
 #define stride 16
     int i;

@@ -185,6 +185,9 @@ PRED4x4(vertical_vp8, 8, mmxext)
 ff_h264_pred_init_x86()
 首先调用av_get_cpu_flags()获取标记CPU特性的cpu_flags，
 然后根据cpu_flags初始化不同的函数，包括{xxx}_mmx()，{xxx}_mmxext()，{xxx}_sse()，{xxx}_sse2()，{xxx}_ssse3()，{xxx}_avx()几种采用不同会变指令的函数。
+
+ff_h264_pred_init_x86()根据平台支持指令集的不同，
+将很多形如“XXX_mmx()”，“XXX_sse2()”，“XXX_ssse3()”，“XXX_avx()”的函数赋值给了H264PredContext中的帧内预测函数指针
 */
 av_cold void ff_h264_pred_init_x86(H264PredContext *h, int codec_id,
                                    const int bit_depth,

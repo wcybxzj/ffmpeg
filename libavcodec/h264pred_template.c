@@ -31,35 +31,126 @@
 
 #include "bit_depth_template.c"
 
+
+/* 帧内预测 
+ * 参数： 
+ * _src：输入数据 
+ * _stride：一行像素的大小 
+ * 
+ */  
+//垂直预测  
+//由上边像素推出像素值  
+/*
+pred4x4_vertical_8_c()首先取了当前4x4块上一行的4个像素存入a变量，然后将a变量的值分别赋值给了当前块的4行。
+在这一有一点要注意：stride代表了一行像素的大小，“src+stride”代表了位于src正下方的像素。
+*/
 static void FUNCC(pred4x4_vertical)(uint8_t *_src, const uint8_t *topright,
                                     ptrdiff_t _stride)
 {
     pixel *src = (pixel*)_src;
     int stride = _stride>>(sizeof(pixel)-1);
+	/* 
+	* Vertical预测方式 
+	*   |X1 X2 X3 X4 
+	* --+----------- 
+	*   |X1 X2 X3 X4 
+	*   |X1 X2 X3 X4 
+	*   |X1 X2 X3 X4 
+	*   |X1 X2 X3 X4 
+	* 
+	*/  
+  
+    //pixel4代表4个像素值。1个像素值占用8bit，4个像素值占用32bit。  
     const pixel4 a= AV_RN4PA(src-stride);
-
-    AV_WN4PA(src+0*stride, a);
+    /* 宏定义展开后： 
+     * const uint32_t a=(((const av_alias32*)(src-stride))->u32); 
+     * 注：av_alias32是一个union类型的变量，存储4byte数据。 
+     * -stride代表了上一行对应位置的像素 
+     * 即a取的是上1行像素的值。 
+     */  
+	AV_WN4PA(src+0*stride, a);
     AV_WN4PA(src+1*stride, a);
     AV_WN4PA(src+2*stride, a);
     AV_WN4PA(src+3*stride, a);
+	/* 宏定义展开后： 
+     * (((av_alias32*)(src+0*stride))->u32 = (a)); 
+     * (((av_alias32*)(src+1*stride))->u32 = (a)); 
+     * (((av_alias32*)(src+2*stride))->u32 = (a)); 
+     * (((av_alias32*)(src+3*stride))->u32 = (a)); 
+     * 即把a的值赋给下面4行。 
+     */ 
 }
+
+//水平预测  
+//由左边像素推出像素值  
+//pred4x4_horizontal_8_c()实现了4x4块Horizontal模式的帧内预测
+/*
+pred4x4_horizontal_8_c()将4x4块每行像素左边的一个像素拷贝了4份之后赋值给了当前行。其中PIXEL_SPLAT_X4()宏的定义如下：
+#   define PIXEL_SPLAT_X4(x) ((x)*0x01010101U) 
+经过研究后发现该宏用于将32bit数据的最后8位复制3份分别赋值到原数据的8-16位、16-24位以及24-32位，
+即将低位8bit数据“复制”3份到高位上。详细的推导过程已经写在了代码注释中，就不再重复了。
+*/
 
 static void FUNCC(pred4x4_horizontal)(uint8_t *_src, const uint8_t *topright,
                                       ptrdiff_t _stride)
 {
     pixel *src = (pixel*)_src;
     int stride = _stride>>(sizeof(pixel)-1);
+    /* 
+     * Horizontal预测方式 
+     *   | 
+     * --+----------- 
+     * X5|X5 X5 X5 X5 
+     * X6|X6 X6 X6 X6 
+     * X7|X7 X7 X7 X7 
+     * X8|X8 X8 X8 X8 
+     * 
+     */  
     AV_WN4PA(src+0*stride, PIXEL_SPLAT_X4(src[-1+0*stride]));
     AV_WN4PA(src+1*stride, PIXEL_SPLAT_X4(src[-1+1*stride]));
     AV_WN4PA(src+2*stride, PIXEL_SPLAT_X4(src[-1+2*stride]));
     AV_WN4PA(src+3*stride, PIXEL_SPLAT_X4(src[-1+3*stride]));
+	
+    /* 宏定义展开后： 
+     * (((av_alias32*)(src+0*stride))->u32 = (((src[-1+0*stride])*0x01010101U))); 
+     * (((av_alias32*)(src+1*stride))->u32 = (((src[-1+1*stride])*0x01010101U))); 
+     * (((av_alias32*)(src+2*stride))->u32 = (((src[-1+2*stride])*0x01010101U))); 
+     * (((av_alias32*)(src+3*stride))->u32 = (((src[-1+3*stride])*0x01010101U))); 
+     * 
+     * PIXEL_SPLAT_X4()的作用应该是把最后一个像素（最后8位）拷贝给前面3个像素（前24位） 
+     * 即把0x0100009F变成0x9F9F9F9F 
+     * 推导： 
+     * 前提是x占8bit（对应1个像素） 
+     * y=x*0x01010101 
+     *  =x*(0x00000001+0x00000100+0x00010000+0x01000000) 
+     *  =x<<0+x<<8+x<<16+x<<24 
+     * 
+     * 每行把src[-1]中像素值例如0x02赋值给src[0]开始的4个像素中，形成0x02020202 
+     */  
 }
 
+//pred4x4_dc_8_c()实现了4x4块DC模式的帧内预测
+//DC预测  
+//由左边和上边像素平均值推出像素值  
+/*
+从源代码可以看出，pred4x4_dc_8_c()将4x4块左边和上边8个点的像素值相加后取了平均值，然后赋值到该4x4块中的所有像素点上。
+*/
 static void FUNCC(pred4x4_dc)(uint8_t *_src, const uint8_t *topright,
                               ptrdiff_t _stride)
 {
     pixel *src = (pixel*)_src;
     int stride = _stride>>(sizeof(pixel)-1);
+	 /* 
+     * DC预测方式 
+     *   |X1 X2 X3 X4 
+     * --+----------- 
+     * X5| 
+     * X6|     Y 
+     * X7| 
+     * X8| 
+     * 
+     * Y=(X1+X2+X3+X4+X5+X6+X7+X8)/8 
+     */  
     const int dc= (  src[-stride] + src[1-stride] + src[2-stride] + src[3-stride]
                    + src[-1+0*stride] + src[-1+1*stride] + src[-1+2*stride] + src[-1+3*stride] + 4) >>3;
     const pixel4 a = PIXEL_SPLAT_X4(dc);
@@ -68,6 +159,12 @@ static void FUNCC(pred4x4_dc)(uint8_t *_src, const uint8_t *topright,
     AV_WN4PA(src+1*stride, a);
     AV_WN4PA(src+2*stride, a);
     AV_WN4PA(src+3*stride, a);
+    /* 宏定义展开后： 
+     * (((av_alias32*)(src+0*stride))->u32 = (a)) 
+     * (((av_alias32*)(src+1*stride))->u32 = (a)) 
+     * (((av_alias32*)(src+2*stride))->u32 = (a)) 
+     * (((av_alias32*)(src+3*stride))->u32 = (a)) 
+     */  
 }
 
 static void FUNCC(pred4x4_left_dc)(uint8_t *_src, const uint8_t *topright,
@@ -326,17 +423,37 @@ static void FUNCC(pred4x4_horizontal_down)(uint8_t *_src,
     src[1+3*stride]=(l1 + 2*l2 + l3 + 2)>>2;
 }
 
+//垂直预测  
+//由上面的函数推出像素值  
+/*
+可以看出pred16x16_vertical_8_c()首先取了16x16块上面的一行像素（16个像素），然后循环16次分别赋值给了宏块的16行。
+*/
 static void FUNCC(pred16x16_vertical)(uint8_t *_src, ptrdiff_t _stride)
 {
+    /* 
+     * Vertical预测方式 
+     *   |X1 X2 X3 X4 
+     * --+----------- 
+     *   |X1 X2 X3 X4 
+     *   |X1 X2 X3 X4 
+     *   |X1 X2 X3 X4 
+     *   |X1 X2 X3 X4 
+     * 
+     */ 
+
     int i;
     pixel *src = (pixel*)_src;
     int stride = _stride>>(sizeof(pixel)-1);
+    //pixel4实际上就是uint32_t，存储4个像素的值（每个像素8bit）  
+    //src-stride表示取上面一行像素的值  
+    //在这里取了16个像素的值，分别存入a，b，c，d四个变量  
     const pixel4 a = AV_RN4PA(((pixel4*)(src-stride))+0);
     const pixel4 b = AV_RN4PA(((pixel4*)(src-stride))+1);
     const pixel4 c = AV_RN4PA(((pixel4*)(src-stride))+2);
     const pixel4 d = AV_RN4PA(((pixel4*)(src-stride))+3);
-
+    //循环16行  
     for(i=0; i<16; i++){
+        //分别赋值每行（每次赋值4个像素，赋值4次）  
         AV_WN4PA(((pixel4*)(src+i*stride))+0, a);
         AV_WN4PA(((pixel4*)(src+i*stride))+1, b);
         AV_WN4PA(((pixel4*)(src+i*stride))+2, c);

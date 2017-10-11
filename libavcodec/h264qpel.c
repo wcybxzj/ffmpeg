@@ -46,11 +46,37 @@
 #undef BIT_DEPTH
 
 //初始化四分之一像素运动补偿相关的函数。
+/*
+ff_h264qpel_init()通过SET_QPEL(8)初始化四分之像素运动补偿C语言版本的函数。
+在函数的末尾，系统会检查的配置，如果支持汇编优化的话，
+还会调用类似于ff_h264qpel_init_x86()这类的函数初始化经过汇编优化之后的四分之一像素运动补偿的函数。
+*/
+/*
+下面展开“SET_QPEL(8)”看一下里面具体的内容。
+
+c->put_h264_qpel_pixels_tab[0][ 0] = put_h264_qpel16_mc00_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 1] = put_h264_qpel16_mc10_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 2] = put_h264_qpel16_mc20_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 3] = put_h264_qpel16_mc30_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 4] = put_h264_qpel16_mc01_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 5] = put_h264_qpel16_mc11_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 6] = put_h264_qpel16_mc21_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 7] = put_h264_qpel16_mc31_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 8] = put_h264_qpel16_mc02_8_c;   
+c->put_h264_qpel_pixels_tab[0][ 9] = put_h264_qpel16_mc12_8_c;   
+c->put_h264_qpel_pixels_tab[0][10] = put_h264_qpel16_mc22_8_c;   
+c->put_h264_qpel_pixels_tab[0][11] = put_h264_qpel16_mc32_8_c;   
+省略
+
+
+*/
+
 av_cold void ff_h264qpel_init(H264QpelContext *c, int bit_depth)
 {
 #undef FUNCC
 #define FUNCC(f, depth) f ## _ ## depth ## _c
 
+//这样用宏定义写的函数在FFmpeg的H.264解码器中很常见  
 #define dspfunc2(PFX, IDX, NUM, depth)                                  \
     c->PFX ## _pixels_tab[IDX][ 0] = FUNCC(PFX ## NUM ## _mc00, depth); \
     c->PFX ## _pixels_tab[IDX][ 1] = FUNCC(PFX ## NUM ## _mc10, depth); \

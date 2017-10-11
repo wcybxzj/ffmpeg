@@ -2523,6 +2523,21 @@ decode_slice()°´ÕÕºê¿é£¨16x16£©µÄ·½Ê½´¦ÀíÊäÈëµÄÊÓÆµÁ÷¡£Ã¿¸öºê¿éµÄÑ¹ËõÊý¾Ý¾­¹ýÒÔÏ
 	d)´ËÍâ»¹ÓÐ¿ÉÄÜµ÷ÓÃer_add_slice()½øÐÐ´íÎóÒþ²Ø´¦Àí
 ¿ÉÒÔ¿´³ö£¬³öÁËìØ½âÂëÒÔÍâ£¬ºê¿é½âÂëºÍ»·Â·ÂË²¨µÄº¯ÊýÊÇÒ»ÑùµÄ¡£
 */
+/*
+ºê¿é½âÂëº¯Êý£¨Decode£©Í¨¹ýÖ¡ÄÚÔ¤²â¡¢Ö¡¼äÔ¤²â¡¢DCT·´±ä»»µÈ·½·¨½âÂëÑ¹ËõÊý¾Ý¡£
+½âÂëº¯ÊýÊÇff_h264_hl_decode_mb()¡£ÆäÖÐ¸úºê¿éÀàÐÍµÄ²»Í¬£¬»áµ÷ÓÃ¼¸¸ö²»Í¬µÄº¯Êý£¬×î³£¼ûµÄ¾ÍÊÇµ÷ÓÃhl_decode_mb_simple_8()¡£
+
+hl_decode_mb_simple_8()µÄ¶¨ÒåÊÇÎÞ·¨ÔÚÔ´´úÂëÖÐÖ±½ÓÕÒµ½µÄ£¬ÕâÊÇÒòÎªËüÊµ¼Ê´úÂëµÄº¯ÊýÃû³ÆÊÇÊ¹ÓÃºêµÄ·½Ê½Ð´µÄ¡£
+hl_decode_mb_simple_8()µÄÔ´´úÂëÊµ¼ÊÉÏ¾ÍÊÇFUNC(hl_decode_mb)()º¯ÊýµÄÔ´´úÂë¡£
+
+´Óº¯Êýµ÷ÓÃÍ¼ÖÐ¿ÉÒÔ¿´³ö£¬FUNC(hl_decode_mb)()¸ù¾Ýºê¿éÀàÐÍµÄ²»Í¬×÷²»Í¬µÄ´¦Àí£º
+Èç¹ûÖ¡ÄÚÔ¤²âºê¿é£¨INTRA£©£¬¾Í»áµ÷ÓÃhl_decode_mb_predict_luma()½øÐÐÖ¡ÄÚÔ¤²â£»
+Èç¹ûÊÇÖ¡¼äÔ¤²âºê¿é£¨INTER£©£¬¾Í»áµ÷ÓÃFUNC(hl_motion_422)()»òÕßFUNC(hl_motion_420)()½øÐÐËÄ·ÖÖ®Ò»ÏñËØÔË¶¯²¹³¥¡£
+
+¾­¹ýÖ¡ÄÚÔ¤²â»òÕßÖ¡¼äÔ¤²â²½ÖèÖ®ºó£¬¾ÍµÃµ½ÁËÔ¤²âÊý¾Ý¡£
+ËæºóFUNC(hl_decode_mb)()»áµ÷ÓÃhl_decode_mb_idct_luma()µÈ¼¸¸öº¯Êý¶Ô²Ð²îÊý¾Ý½øÐÐDCT·´±ä»»¹¤×÷£¬
+²¢½«±ä»»ºóµÄÊý¾Ýµþ¼Óµ½Ô¤²âÊý¾ÝÉÏ£¬ÐÎ³É½âÂëºóµÄÍ¼ÏñÊý¾Ý
+*/
 
 static int decode_slice(struct AVCodecContext *avctx, void *arg)
 {

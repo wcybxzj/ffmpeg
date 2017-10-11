@@ -224,6 +224,13 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                 //h->qpel_put[16]包含了单向预测的四分之一像素运动补偿所有样点处理的函数  
                 //两个像素之间横向的点（内插点和原始的点）有4个，纵向的点有4个，组合起来一共16个  
                 //h->qpel_avg[16]情况也类似 
+
+				/*
+				FUNC(hl_motion_420)()用于对YUV420P格式的H.264码流进行帧间预测，
+				根据运动矢量和参考帧获得帧间预测的结果。
+				如果直接查找“FUNC(hl_motion_420)()”的定义是无法找到的，
+				该函数的定义实际上就是MCFUNC(hl_motion)的定义。
+				*/
                 FUNC(hl_motion_420)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
                               h->h264chroma.put_h264_chroma_pixels_tab,

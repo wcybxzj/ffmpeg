@@ -444,6 +444,21 @@ if(codec_id != AV_CODEC_ID_RV40){
 
 
 //初始化帧内预测相关的函数。
+/*
+帧内预测汇编函数的初始化
+FFmpeg H.264解码器中4x4帧内预测函数指针位于H264PredContext的pred4x4[]数组中，其中每一个元素指向一种4x4帧内预测模式。
+而16x16帧内预测函数指针位于H264PredContext的pred16x16[]数组中，其中每一个元素指向一种16x16帧内预测模式。
+在FFmpeg H.264解码器初始化的时候，会调用ff_h264_pred_init()根据系统的配置对H264PredContext中的这些帧内预测函数指针进行赋值。
+*/
+/*
+从源代码可以看出，ff_h264_pred_init()函数中包含一个名为“H264_PRED(depth)”的很长的宏定义。
+该宏定义中包含了C语言版本的帧内预测函数的初始化代码。
+ff_h264_pred_init()会根据系统的颜色位深bit_depth初始化相应的C语言版本的帧内预测函数。
+在函数的末尾则包含了汇编函数的初始化函数：
+如果系统是ARM架构的，则会调用ff_h264_pred_init_arm()初始化ARM平台下经过汇编优化的帧内预测函数；
+如果系统是X86架构的，则会调用ff_h264_pred_init_x86()初始化X86平台下经过汇编优化的帧内预测函数。
+*/
+
 av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
                                const int bit_depth,
                                int chroma_format_idc)

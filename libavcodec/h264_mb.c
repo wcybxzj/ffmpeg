@@ -202,6 +202,20 @@ static void await_references(const H264Context *h, H264SliceContext *sl)
         }
 }
 
+
+/*
+mc_dir_part()的流程（只考虑亮度，色度的流程类似）：
+（1）计算mx和my。mx和my是当前宏块的匹配块的位置坐标。
+	 需要注意的是该坐标是以1/4像素（而不是整像素）为基本单位的。
+（2）计算offset。offset是当前宏块的匹配块相对于图像的整像素偏移量，由mx、my计算而来。
+（3）计算luma_xy。luma_xy决定了当前宏块的匹配块采用的四分之一像素运动补偿的方式，由mx、my计算而来。
+（4）调用运动补偿汇编函数qpix_op[luma_xy]()完成运动补偿。
+	在这里需要注意，如果子宏块不是正方形的（square取0），
+	则还会调用1次qpix_op[luma_xy]()完成另外一个方块的运动补偿。
+总而言之，首先找到当前宏块的匹配块的整像素位置，然后在该位置的基础上进行四分之一像素的内插，并将结果输出出来。
+*/
+
+//mc_dir_part()完成了子宏块的运动补偿。
 static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext *sl,
                                          H264Ref *pic,
                                          int n, int square, int height,
@@ -213,15 +227,66 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
                                          h264_chroma_mc_func chroma_op,
                                          int pixel_shift, int chroma_idc)
 {
+    //运动补偿块在图像中的横坐标x和纵坐标y  
+    //基本单位是1/4像素  
+    //src_x_offset，src_y_offset是以色度（而非亮度）为基本单位的，所以基本单位是2px  
+    /* 
+     * 注意scan8[]数组 
+     * mv_cache如下所示 
+     * 图中数字为scan8[n]中的n 
+     *   | 
+     * --+-------------------- 
+     *   | x x x x  x  x  x  x 
+     *   | x x x x  0  1  4  5 
+     *   | x x x x  2  3  6  7 
+     *   | x x x x  8  9 12 13 
+     *   | x x x x 10 11 14 15 
+     */  
+
     const int mx      = sl->mv_cache[list][scan8[n]][0] + src_x_offset * 8;
     int my            = sl->mv_cache[list][scan8[n]][1] + src_y_offset * 8;
+	//  
+    //luma_xy为运动补偿系数的序号  
+    //决定了调用的运动补偿函数  
+    //在系统找到了整像素点的运动补偿块之后，需要调用四分之一运动补偿模块对像素点进行内插等处理  
+    //  
+    //运动补偿函数集（16个函数）的列表（“qpel8”代表处理8个像素）：  
+    //[0]: put_h264_qpel8_mc00_8_c()  
+    //[1]: put_h264_qpel8_mc10_8_c()  
+    //[2]: put_h264_qpel8_mc20_8_c()  
+    //[3]: put_h264_qpel8_mc30_8_c()  
+    //注：4个一循环--------------------  
+    //[4]: put_h264_qpel8_mc01_8_c()  
+    //[5]: put_h264_qpel8_mc11_8_c()  
+    //[6]: put_h264_qpel8_mc21_8_c()  
+    //...  
+    //[16]: put_h264_qpel8_mc33_8_c()  
+    //函数名称中mc{ab}命名规则？  
+    //纵向为垂直，横向为水平{ab}中{a}代表水平，{b}代表垂直  
+    //{a,b}与像素内插点之间的关系如下表所示  
+    //---------------------------------------------------------------------------------  
+    // |                 |原始像素(0) | 1/4内插点  | 1/2内插点  | 3/4内插点  | 原始像素(1)  
+    //-+-------------------------------------------------------------------------------  
+    // | 原始像素(0)     | 0,0        | 1,0        | 2,0        | 3,0        |  
+    // | 1/4内插点       | 0,1        | 1,1        | 2,1        | 3,1        |  
+    // | 1/2内插点       | 0,2        | 1,2        | 2,2        | 3,2        |  
+    // | 3/4内插点       | 0,3        | 1,3        | 2,3        | 3,3        |  
+    //---------------------------------------------------------------------------------  
+    // | 原始像素(0+1行) |  
+  
+  
+    //取出mx和my的后2位（代表了小于整像素点的mv，因为mx，my基本单位是1/4像素）  
     const int luma_xy = (mx & 3) + ((my & 3) << 2);
+    //offset计算：mx，my都除以4（四分之一像素运动补偿），变成整像素  
     ptrdiff_t offset  = (mx >> 2) * (1 << pixel_shift) + (my >> 2) * sl->mb_linesize;
-    uint8_t *src_y    = pic->data[0] + offset;
+    //源src_y  
+    //AVFrame的data[0]+整像素偏移值  
+	uint8_t *src_y    = pic->data[0] + offset;
     uint8_t *src_cb, *src_cr;
     int extra_width  = 0;
     int extra_height = 0;
-    int emu = 0;
+    int emu = 0;	
+    //mx，my都除以4，变成整像素  
     const int full_mx    = mx >> 2;
     const int full_my    = my >> 2;
     const int pic_width  = 16 * h->mb_width;
@@ -233,6 +298,7 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
     if (my & 7)
         extra_height -= 3;
 
+    //在图像边界处的处理  
     if (full_mx                <          0 - extra_width  ||
         full_my                <          0 - extra_height ||
         full_mx + 16 /*FIXME*/ > pic_width  + extra_width  ||
@@ -245,14 +311,32 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
         src_y = sl->edge_emu_buffer + (2 << pixel_shift) + 2 * sl->mb_linesize;
         emu   = 1;
     }
-
+    //汇编函数：实际的运动补偿函数-亮度  
+    //注意只能以正方形的形式处理（16x16，8x8，4x4）  
+    //src_y是输入的整像素点的图像块  
+    //dest_y是输出的经过四分之一运动补偿之后的图像块（经过内插处理）  
     qpix_op[luma_xy](dest_y, src_y, sl->mb_linesize); // FIXME try variable height perhaps?
-    if (!square)
+    //square标记了宏块是否为方形  
+    //如果不是方形，说明是一个包含两个正方形的长方形（16x8，8x16，8x4,4x8），这时候还需要处理另外一块  
+    //delta标记了另外一块“方形”的起始点与dest_y之间的偏移值（例如16x8中，delta取值为8）  
+    /* 
+     * 例如对于16x8 宏块划分，就分别进行2次8x8的运动补偿，如下所示。 
+     * 
+     *       8        8 
+     *   +--------+--------+     +--------+   +--------+ 
+     *   |                 |     |        |   |        | 
+     * 8 |        |        |  =  |        | + |        | 
+     *   |                 |     |        |   |        | 
+     *   +--------+--------+     +--------+   +--------+ 
+     * 
+     */  
+	if (!square)
         qpix_op[luma_xy](dest_y + delta, src_y + delta, sl->mb_linesize);
 
     if (CONFIG_GRAY && h->flags & AV_CODEC_FLAG_GRAY)
         return;
 
+    //如果是YUV444的话，按照亮度的方法，再处理2遍，然后返回  
     if (chroma_idc == 3 /* yuv444 */) {
         src_cb = pic->data[1] + offset;
         if (emu) {
@@ -291,6 +375,9 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
         emu |= (my >> 3) < 0 || (my >> 3) + 8 >= (pic_height >> 1);
     }
 
+    //色度UV的运动补偿  
+    //mx，my除以8。色度运动补偿为1/8像素  
+    //AVFrame的data[1]和data[2]  
     src_cb = pic->data[1] + ((mx >> 3) * (1 << pixel_shift)) +
              (my >> ysh) * sl->mb_uvlinesize;
     src_cr = pic->data[2] + ((mx >> 3) * (1 << pixel_shift)) +
@@ -318,6 +405,10 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
               mx & 7, ((unsigned)my << (chroma_idc == 2 /* yuv422 */)) & 7);
 }
 
+/*
+mc_part_std()函数用于判断已经分块的子宏块是单向预测还是双向预测
+*/
+//已经分割为子宏块的运动补偿-标准版（区别于加权版）  
 static av_always_inline void mc_part_std(const H264Context *h, H264SliceContext *sl,
                                          int n, int square,
                                          int height, int delta,
@@ -333,8 +424,10 @@ static av_always_inline void mc_part_std(const H264Context *h, H264SliceContext 
 {
     const qpel_mc_func *qpix_op   = qpix_put;
     h264_chroma_mc_func chroma_op = chroma_put;
-
-    dest_y += (2 * x_offset << pixel_shift) + 2 * y_offset * sl->mb_linesize;
+    //x_offset，y_offset只有在有子宏块划分的情况下不为0  
+    //16x16宏块的话，为0  
+    //亮度的x_offset，y_offset都要乘以2  
+	dest_y += (2 * x_offset << pixel_shift) + 2 * y_offset * sl->mb_linesize;
     if (chroma_idc == 3 /* yuv444 */) {
         dest_cb += (2 * x_offset << pixel_shift) + 2 * y_offset * sl->mb_linesize;
         dest_cr += (2 * x_offset << pixel_shift) + 2 * y_offset * sl->mb_linesize;
@@ -342,22 +435,27 @@ static av_always_inline void mc_part_std(const H264Context *h, H264SliceContext 
         dest_cb += (x_offset << pixel_shift) + 2 * y_offset * sl->mb_uvlinesize;
         dest_cr += (x_offset << pixel_shift) + 2 * y_offset * sl->mb_uvlinesize;
     } else { /* yuv420 */
-        dest_cb += (x_offset << pixel_shift) + y_offset * sl->mb_uvlinesize;
+		 //色度的x_offset，y_offset  
+		dest_cb += (x_offset << pixel_shift) + y_offset * sl->mb_uvlinesize;
         dest_cr += (x_offset << pixel_shift) + y_offset * sl->mb_uvlinesize;
     }
+    //注意x_offset，y_offset取值（以YUV420P中色度为基准？所以乘以8）  
     x_offset += 8 * sl->mb_x;
     y_offset += 8 * (sl->mb_y >> MB_FIELD(sl));
-
+    //如果使用List0  
+    //P宏块  
     if (list0) {
         H264Ref *ref = &sl->ref_list[0][sl->ref_cache[0][scan8[n]]];
+        //真正的运动补偿  
         mc_dir_part(h, sl, ref, n, square, height, delta, 0,
                     dest_y, dest_cb, dest_cr, x_offset, y_offset,
                     qpix_op, chroma_op, pixel_shift, chroma_idc);
-
+        //注意：“_put”变成“_avg”  
         qpix_op   = qpix_avg;
         chroma_op = chroma_avg;
     }
-
+    //如果使用List1  
+    //B宏块  
     if (list1) {
         H264Ref *ref = &sl->ref_list[1][sl->ref_cache[1][scan8[n]]];
         mc_dir_part(h, sl, ref, n, square, height, delta, 1,
@@ -610,6 +708,32 @@ static av_always_inline void dctcoef_set(int16_t *mb, int high_bit_depth,
         AV_WN16A(mb + index, value);
 }
 
+//hl_decode_mb_predict_luma()对帧内宏块进行帧内预测
+//帧内预测-亮度  
+//分成2种情况：Intra4x4和Intra16x16  
+
+/*
+下面根据原代码梳理一下hl_decode_mb_predict_luma()的主干：
+（1）如果宏块是4x4帧内预测类型（Intra4x4），作如下处理：
+	a)循环遍历16个4x4的块，并作如下处理：
+		i.从intra4x4_pred_mode_cache中读取4x4帧内预测方法
+		ii.根据帧内预测方法调用H264PredContext中的汇编函数pred4x4()进行帧内预测
+		iii.调用H264DSPContext中的汇编函数h264_idct_add()对DCT残差数据进行4x4DCT反变换；
+			如果DCT系数中不包含AC系数的话，则调用汇编函数h264_idct_dc_add()对残差数据进行4x4DCT反变换（速度更快）。
+（2）如果宏块是16x16帧内预测类型（Intra4x4），作如下处理：
+	a)通过intra16x16_pred_mode获得16x16帧内预测方法
+	b)根据帧内预测方法调用H264PredContext中的汇编函数pred16x16 ()进行帧内预测
+	c)调用H264DSPContext中的汇编函数h264_luma_dc_dequant_idct ()对16个小块的DC系数进行Hadamard反变换
+		在这里需要注意，帧内4x4的宏块在执行完hl_decode_mb_predict_luma()之后实际上已经完成了“帧内预测+DCT反变换”的流程（解码完成）；
+		而帧内16x16的宏块在执行完hl_decode_mb_predict_luma()之后仅仅完成了“帧内预测+Hadamard反变换”的流程，
+		而并未进行“DCT反变换”的步骤，这一步骤需要在后续步骤中完成。
+		下文记录上述流程中涉及到的汇编函数（此处暂不记录DCT反变换的函数，在后文中再进行叙述）：
+		
+4x4帧内预测汇编函数：H264PredContext -> pred4x4[dir]()
+16x16帧内预测汇编函数：H264PredContext -> pred16x16[dir]()
+Hadamard反变换汇编函数：H264DSPContext->h264_luma_dc_dequant_idct()
+*/
+
 static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
                                                        H264SliceContext *sl,
                                                        int mb_type, int simple,
@@ -619,13 +743,16 @@ static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
                                                        int linesize,
                                                        uint8_t *dest_y, int p)
 {
+    //用于DCT反变换  
     void (*idct_add)(uint8_t *dst, int16_t *block, int stride);
     void (*idct_dc_add)(uint8_t *dst, int16_t *block, int stride);
     int i;
     int qscale = p == 0 ? sl->qscale : sl->chroma_qp[p - 1];
+    //外部调用时候p=0  
     block_offset += 16 * p;
     if (IS_INTRA4x4(mb_type)) {
         if (IS_8x8DCT(mb_type)) {
+            //如果使用了8x8的DCT，先不研究  
             if (transform_bypass) {
                 idct_dc_add =
                 idct_add    = h->h264dsp.h264_add_pixels8_clear;
@@ -656,15 +783,35 @@ static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
                 }
             }
         } else {
+         	/* 
+             * Intra4x4帧内预测：16x16 宏块被划分为16个4x4子块 
+             * 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * |    |    |    |    | 
+             * +----+----+----+----+ 
+             * 
+             */  
+            //4x4的IDCT  
+            //transform_bypass=0，不考虑  
             if (transform_bypass) {
                 idct_dc_add  =
                 idct_add     = h->h264dsp.h264_add_pixels4_clear;
             } else {
+                //常见情况  
                 idct_dc_add = h->h264dsp.h264_idct_dc_add;
                 idct_add    = h->h264dsp.h264_idct_add;
             }
+            //循环4x4=16个DCT块  
             for (i = 0; i < 16; i++) {
+                //ptr指向输出的像素数据  
                 uint8_t *const ptr = dest_y + block_offset[i];
+                //dir存储了帧内预测模式  
                 const int dir      = sl->intra4x4_pred_mode_cache[scan8[i]];
 
                 if (transform_bypass && h->ps.sps->profile_idc == 244 && dir <= 1) {
@@ -673,6 +820,7 @@ static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
                     uint8_t *topright;
                     int nnz, tr;
                     uint64_t tr_high;
+\                    //这2种模式特殊的处理？  
                     if (dir == DIAG_DOWN_LEFT_PRED || dir == VERT_LEFT_PRED) {
                         const int topright_avail = (sl->topright_samples_available << i) & 0x8000;
                         av_assert2(sl->mb_y || linesize <= block_offset[i]);
@@ -688,25 +836,50 @@ static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
                             topright = ptr + (4 << pixel_shift) - linesize;
                     } else
                         topright = NULL;
-
+                    //汇编函数：4x4帧内预测（9种方式：Vertical，Horizontal，DC，Plane等等。。。）  
                     h->hpc.pred4x4[dir](ptr, topright, linesize);
+                    //每个4x4块的非0系数个数的缓存  
                     nnz = sl->non_zero_count_cache[scan8[i + p * 16]];
+					//有非0系数的时候才处理  
+					//h->mb中存储了DCT系数  
+					//输出存储在ptr  
                     if (nnz) {
                         if (nnz == 1 && dctcoef_get(sl->mb, pixel_shift, i * 16 + p * 256))
-                            idct_dc_add(ptr, sl->mb + (i * 16 + p * 256 << pixel_shift), linesize);
+                            idct_dc_add(ptr, sl->mb + (i * 16 + p * 256 << pixel_shift), linesize);//特殊：AC系数全为0时候调用  
                         else
-                            idct_add(ptr, sl->mb + (i * 16 + p * 256 << pixel_shift), linesize);
+                            idct_add(ptr, sl->mb + (i * 16 + p * 256 << pixel_shift), linesize);//4x4DCT反变换  
                     }
                 }
             }
         }
     } else {
+        /* 
+         * Intra16x16帧内预测 
+         * 
+         * +--------+--------+ 
+         * |                 | 
+         * |                 | 
+         * |                 | 
+         * +        +        + 
+         * |                 | 
+         * |                 | 
+         * |                 | 
+         * +--------+--------+ 
+         * 
+         */  
+        //汇编函数：16x16帧内预测（4种方式：Vertical，Horizontal，DC，Plane）
         h->hpc.pred16x16[sl->intra16x16_pred_mode](dest_y, linesize);
         if (sl->non_zero_count_cache[scan8[LUMA_DC_BLOCK_INDEX + p]]) {
+			//有非0系数的时候才处理  
+			//Hadamard反变换  
+			//h->mb中存储了DCT系数  
+			//h->mb_luma_dc中存储了16个DCT的直流分量  
             if (!transform_bypass)
                 h->h264dsp.h264_luma_dc_dequant_idct(sl->mb + (p * 256 << pixel_shift),
                                                      sl->mb_luma_dc[p],
                                                      h->ps.pps->dequant4_coeff[p][qscale][0]);
+				//注：此处仅仅进行了Hadamard反变换，并未进行DCT反变换  
+				//Intra16x16在解码过程中的DCT反变换并不是在这里进行，而是在后面进行  
             else {
                 static const uint8_t dc_mapping[16] = {
                      0 * 16,  1 * 16,  4 * 16,  5 * 16,
@@ -723,6 +896,22 @@ static av_always_inline void hl_decode_mb_predict_luma(const H264Context *h,
         }
     }
 }
+/*
+hl_decode_mb_idct_luma()对宏块的亮度残差进行进行DCT反变换，
+并且将残差数据叠加到前面阵内或者帧间预测得到的预测数据上（需要注意实际上“DCT反变换”和“叠加”两个步骤是同时完成的）。
+
+
+下面根据源代码简单梳理一下hl_decode_mb_idct_luma()的流程：
+（1）判断宏块是否属于Intra4x4类型，如果是，函数直接返回（Intra4x4比较特殊，它的DCT反变换已经前文所述的“帧内预测”部分完成）。
+（2）根据不同的宏块类型作不同的处理：
+	a)Intra16x16：调用H264DSPContext的汇编函数h264_idct_add16intra()进行DCT反变换
+	b)Inter类型：调用H264DSPContext的汇编函数h264_idct_add16()进行DCT反变换
+
+	PS：需要注意的是h264_idct_add16intra()和h264_idct_add16()只有微小的区别，
+	它们的基本逻辑都是把16x16的块划分为16个4x4的块再进行DCT反变换。
+	此外还有一点需要注意：函数名中的“add”的含义是将DCT反变换之后的残差像素数据直接叠加到已有数据之上。
+
+*/
 
 static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264SliceContext *sl,
                                                     int mb_type, int simple,
@@ -732,10 +921,13 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
                                                     int linesize,
                                                     uint8_t *dest_y, int p)
 {
+    //用于IDCT  
     void (*idct_add)(uint8_t *dst, int16_t *block, int stride);
     int i;
     block_offset += 16 * p;
+    //Intra4x4的DCT反变换在pred部分已经完成，这里就不需要处理了  
     if (!IS_INTRA4x4(mb_type)) {
+	    //Intra16x16宏块  
         if (IS_INTRA16x16(mb_type)) {
             if (transform_bypass) {
                 if (h->ps.sps->profile_idc == 244 &&
@@ -753,6 +945,8 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
                                                               linesize);
                 }
             } else {
+				//Intra16x16的DCT反变换  
+				//最后的“16”代表内部循环处理16次	
                 h->h264dsp.h264_idct_add16intra(dest_y, block_offset,
                                                 sl->mb + (p * 256 << pixel_shift),
                                                 linesize,
@@ -775,6 +969,11 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
                                                linesize,
                                                sl->non_zero_count_cache + p * 5 * 8);
                 else
+					//处理16x16宏块  
+                    //采用4x4的IDCT  
+                    //最后的“16”代表内部循环处理16次  
+                    //输出结果到dest_y  
+                    //h->mb中存储了DCT系数  
                     h->h264dsp.h264_idct_add16(dest_y, block_offset,
                                                sl->mb + (p * 256 << pixel_shift),
                                                linesize,

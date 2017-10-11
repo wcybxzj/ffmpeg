@@ -394,14 +394,20 @@ static inline void mc_dir_part(AVSContext *h, AVFrame *pic, int chroma_height,
                                qpel_mc_func *qpix_op,
                                h264_chroma_mc_func chroma_op, cavs_vector *mv)
 {
+
+
+
     const int mx         = mv->x + src_x_offset * 8;
     const int my         = mv->y + src_y_offset * 8;
-    const int luma_xy    = (mx & 3) + ((my & 3) << 2);
+
+	const int luma_xy    = (mx & 3) + ((my & 3) << 2);
+
     uint8_t *src_y       = pic->data[0] + (mx >> 2) + (my >> 2) * h->l_stride;
     uint8_t *src_cb      = pic->data[1] + (mx >> 3) + (my >> 3) * h->c_stride;
     uint8_t *src_cr      = pic->data[2] + (mx >> 3) + (my >> 3) * h->c_stride;
     int extra_width      = 0;
     int extra_height     = extra_width;
+
     const int full_mx    = mx >> 2;
     const int full_my    = my >> 2;
     const int pic_width  = 16 * h->mb_width;
@@ -414,6 +420,7 @@ static inline void mc_dir_part(AVSContext *h, AVFrame *pic, int chroma_height,
         extra_width  -= 3;
     if (my & 7)
         extra_height -= 3;
+
 
     if (full_mx < 0 - extra_width ||
         full_my < 0 - extra_height ||
@@ -429,7 +436,6 @@ static inline void mc_dir_part(AVSContext *h, AVFrame *pic, int chroma_height,
         emu   = 1;
     }
 
-    // FIXME try variable height perhaps?
     qpix_op[luma_xy](dest_y, src_y, h->l_stride);
 
     if (emu) {
@@ -453,6 +459,24 @@ static inline void mc_dir_part(AVSContext *h, AVFrame *pic, int chroma_height,
     chroma_op(dest_cr, src_cr, h->c_stride, chroma_height, mx & 7, my & 7);
 }
 
+
+/*
+mc_part_std()
+首先计算了几个关键的用于确定子宏块位置的参数，然后根据预测类型的不同（单向预测或者双向预测），
+把不同的函数指针传递给mc_dir_part()：
+如果仅仅使用了list0（单向预测），则只传递qpix_put()；
+如果使用了list0和list1（双向预测），则调用两次mc_dir_part()，
+第一次传递qpix_put()，第二次传递qpix_avg()。
+
+mc_part_std()中赋值了3个重要的变量（只考虑亮度）：
+（1）dest_y：
+	指向子宏块亮度数据指针。这个值是通过x_offset和y_offset计算得来的。
+	在这里需要注意一点：x_offset和y_offset是以色度为基本单位的，所以在计算亮度相关的变量的时候需要乘以2。
+（2）x_offset：
+	传入的x_offset本来是子宏块相对于整个宏块位置的横坐标，在这里加上8 * h->mb_x之后，变成了子宏块相对于整个图像的位置的横坐标（以色度为基本单位）。
+（3）y_offset：
+	传入的y_offset本来是子宏块相对于整个宏块位置的纵坐标，在这里加上8 * h->mb_y之后，变成了子宏块相对于整个图像的位置的纵坐标（以色度为基本单位）。
+*/
 static inline void mc_part_std(AVSContext *h, int chroma_height, int delta,
                                uint8_t *dest_y,
                                uint8_t *dest_cb,
@@ -466,7 +490,6 @@ static inline void mc_part_std(AVSContext *h, int chroma_height, int delta,
 {
     qpel_mc_func *qpix_op =  qpix_put;
     h264_chroma_mc_func chroma_op = chroma_put;
-
     dest_y   += x_offset * 2 + y_offset * h->l_stride * 2;
     dest_cb  += x_offset     + y_offset * h->c_stride;
     dest_cr  += x_offset     + y_offset * h->c_stride;
